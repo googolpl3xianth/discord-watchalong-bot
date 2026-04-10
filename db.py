@@ -13,28 +13,39 @@ def json_datetime_serializer(obj):
 @dataclass
 class RoleRequest:
     requester_id: int
-    ping_day: int = None
-    ping_time: str = None
+    day: int = None
+    time: str = None
+    ping_notice: int = None
+    location: str = None
+    current_ep: int = 1
+    total_eps: int = None
+    ep_rate: int = 1
     emoji: str = None
 
 @dataclass
 class RoleClass:
     role_id: int
-    ping_day: int = None
-    ping_time: str = None
+    day: int = None
+    time: str = None
+    ping_notice: int = None
+    current_ep: int = None
+    total_eps: int = None
+    ep_rate: int = None
+    location: str = None
 
 class data_struct:
     def __init__(self):
-        self.role_queue = {}
-        self.roles = {}
-        self.reaction_map = {}
+        self.role_queue: dict[str, RoleRequest] = {}
+        self.roles: dict[str, RoleClass] = {}
+        self.reaction_map: dict[str, int] = {}
 
 class MyBot(commands.Bot):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.db = sqlite3.connect("bot_state.db")
         self.data = data_struct()
-        self.react_message_id = None
+        self.react_message_id: int = None
+        self.data_loaded = False
         self._init_db()
 
     def _init_db(self):
@@ -73,6 +84,8 @@ class MyBot(commands.Bot):
         if self.react_message_id is not None: 
             self.react_message_id = int(self.react_message_id)
 
+        self.data_loaded = True
+
     def save_data(self):
         cursor = self.db.cursor()
 
@@ -102,7 +115,8 @@ class MyBot(commands.Bot):
         await self.tree.sync()
 
     async def close(self):
-        self.save_data()
+        if self.data_loaded:
+            self.save_data()
         self.db.close()
         await super().close()
 

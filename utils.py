@@ -10,7 +10,7 @@ def parse_schedule(day_str: str, time_str: str):
         'mon': 0, 'monday': 0,
         'tue': 1, 'tues': 1, 'tuesday': 1,
         'wed': 2, 'wednesday': 2,
-        'thu': 3, 'thurs': 3, 'thursday': 3,
+        'thu': 3, 'thur': 3, 'thurs': 3, 'thursday': 3,
         'fri': 4, 'friday': 4,
         'sat': 5, 'saturday': 5,
         'sun': 6, 'sunday': 6
