@@ -17,7 +17,7 @@ class RoleRequest:
     time: str = None
     ping_notice: int = None
     location: str = None
-    current_ep: int = 1
+    ep_progress: int = 0
     total_eps: int = None
     ep_rate: int = 1
     emoji: str = None
@@ -28,7 +28,7 @@ class RoleClass:
     day: int = None
     time: str = None
     ping_notice: int = None
-    current_ep: int = None
+    ep_progress: int = None
     total_eps: int = None
     ep_rate: int = None
     location: str = None

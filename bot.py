@@ -40,6 +40,17 @@ async def weekly_ping_task():
 
     for role_name, role_data in list(bot.data.roles.items()):
         if role_data.ping_notice is None or role_data.day is None or role_data.time is None:
+            if role_data.day is not None or role_data.time is not None:
+                time_obj = dt.time.fromisoformat(role_data.time)
+                temp_days = role_data.day-now.weekday()
+                target_date = now + timedelta(days=temp_days)
+                target_dt_obj = dt.datetime.combine(target_date, time_obj)
+                if target_dt_obj.day == now.day:
+                    if now.hour == target_dt_obj.hour and now.minute == target_dt_obj.minute:
+                        role = ping_channel.guild.get_role(role_data.role_id)
+                        if role and role_data.ep_progress is not None:
+                            if role_data.ep_rate is not None:
+                                    role_data.ep_progress += role_data.ep_rate
             continue
         time_obj = dt.time.fromisoformat(role_data.time)
         temp_days = role_data.day-now.weekday()
@@ -58,7 +69,7 @@ async def weekly_ping_task():
                     last_ping.year != target_dt_obj.year)):
                     role = ping_channel.guild.get_role(role_data.role_id)
                     if role:
-                        if role_data.current_ep is not None and role_data.total_eps is not None and role_data.current_ep > role_data.total_eps:
+                        if role_data.ep_progress is not None and role_data.total_eps is not None and role_data.ep_progress > role_data.total_eps:
                             await role.delete(reason="Anime Finished")
                             
                             key_to_del = next((k for k, v in bot.data.reaction_map.items() if v == role_data.role_id), None)
@@ -74,14 +85,15 @@ async def weekly_ping_task():
                             bot.save_data()
                             continue
                         message = (f"{role.mention} Reminder that we will be watching **{role_name}**")
-                        if role_data.current_ep is not None:
+                        if role_data.ep_progress is not None:
                             if role_data.ep_rate and role_data.ep_rate > 1:
-                                message += f" - Episodes {role_data.current_ep}-{role_data.current_ep+role_data.ep_rate-1}"
+                                message += f" - Episodes {role_data.ep_progress+1}-{role_data.ep_progress+role_data.ep_rate}"
                             else:
-                                message += f" - Episode {role_data.current_ep}"
+                                message += f" - Episode {role_data.ep_progress+1}"
                             if role_data.ep_rate is not None:
-                                role_data.current_ep += role_data.ep_rate
+                                role_data.ep_progress += role_data.ep_rate
                                 bot.save_data()
+                                await update_role_message()
                         message += f" in {role_data.ping_notice} minutes"
                         if role_data.location is not None: message += f" at {role_data.location}!"
                         await ping_channel.send(message)
@@ -110,12 +122,17 @@ async def watchalong_roles_autocomplete(
     ]
     return choices[:25]
 
+
+anilist_cache = {}
 async def anilist_search_autocomplete(
     interaction: discord.Interaction, 
     current: str
 ) -> list[app_commands.Choice[str]]:
     if len(current) < 3:
         return []
+    
+    if current in anilist_cache:
+        return anilist_cache[current]
 
     url = 'https://graphql.anilist.co'
     query = '''
@@ -131,24 +148,32 @@ async def anilist_search_autocomplete(
     '''
     variables = {'search': current}
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json={'query': query, 'variables': variables}) as response:
-            if response.status == 200:
-                data = await response.json()
-                anime_list = data['data']['Page']['media']
-                
-                choices = []
-                for anime in anime_list:
-                    title = anime['title']['english'] or anime['title']['romaji']
-                    episodes = anime['episodes'] or "Unknown"
+    timeout = aiohttp.ClientTimeout(total=2.0)
 
-                    display_name = f"{title[:80]} ({episodes} Eps)" 
-                    hidden_value = f"{title[:80]}|eps:{episodes}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json={'query': query, 'variables': variables}) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    anime_list = data['data']['Page']['media']
                     
-                    choices.append(app_commands.Choice(name=display_name, value=hidden_value))
-                
-                return choices
-            return []
+                    choices = []
+                    for anime in anime_list:
+                        title = anime['title']['english'] or anime['title']['romaji']
+                        episodes = anime['episodes'] or "Unknown"
+
+                        display_name = f"{title[:80]} ({episodes} Eps)" 
+                        hidden_value = f"{title[:80]}|eps:{episodes}"
+                        
+                        choices.append(app_commands.Choice(name=display_name, value=hidden_value))
+                    anilist_cache[current] = choices
+                    if len(anilist_cache) > 500:
+                        anilist_cache.clear()
+
+                    return choices
+    except (asyncio.TimeoutError, aiohttp.ClientError):
+        pass
+    return []
 
 @bot.event
 async def on_ready():
@@ -169,8 +194,8 @@ async def on_ready():
     ping_notice="Notice relative to time of meeting in minutes, defaults to no ping",
     location="Description for where meeting is",
     react_emoji="Emoji for the reaction",
-    starting_ep="Starting episode, defaults to 1, for edge cases (ie episode 0/prologue), just leave as 1",
-    total_eps="Overrides total episode of anime, defaults to what anilist finds",
+    ep_progress="Starting amount of episodes watched, defaults to 0, for edge cases (ie ep 0/prologue), just leave as 0",
+    total_eps="Overrides total episode of anime, defaults to what anilist finds or 1 if unable to find",
     ep_rate="Number of episodes watching per meeting, defaults to 1"
 )
 @app_commands.autocomplete(role_name=anilist_search_autocomplete)
@@ -181,8 +206,8 @@ async def request_role(interaction: discord.Interaction,
     ping_notice: int = None,
     location: str = None,
     react_emoji: str = None,
-    starting_ep: int = 1,
-    total_eps: int = None,
+    ep_progress: int = 0,
+    total_eps: int = 1,
     ep_rate: int = 1,
 ):
     await interaction.response.defer()
@@ -234,7 +259,7 @@ async def request_role(interaction: discord.Interaction,
         time=parsed_time.isoformat() if parsed_time else None,
         ping_notice=ping_notice,
         location=location,
-        current_ep=starting_ep,
+        ep_progress=ep_progress,
         total_eps=total_eps,
         ep_rate=ep_rate,
         emoji=react_emoji
@@ -255,8 +280,8 @@ async def request_role(interaction: discord.Interaction,
         f"**New Role Request from <@{user.id}>**\n"
         f"**Role:** `{role_name}`\n"
     )
-    if starting_ep is not None:
-        message += f"Starting at episode `{bot.data.role_queue[role_name].current_ep}`"
+    if ep_progress is not None:
+        message += f"Starting at episode progress `{bot.data.role_queue[role_name].ep_progress}`"
         if total_eps is not None:
             message += f" out of `{bot.data.role_queue[role_name].total_eps}` episodes"
         if ep_rate is not None:
@@ -280,7 +305,7 @@ async def request_role(interaction: discord.Interaction,
     ping_notice="Overwrites notice relative to time of meeting in minutes, defaults to no ping",
     location="Overwrites description for where meeting is",
     react_emoji="Overwrites requet's emoji for the reaction",
-    starting_ep="Overwrites starting episode, for edge cases (ie episode 0/prologue), just set to 1",
+    ep_progress="Overwrites starting episode progress, for edge cases (ie episode 0/prologue), just set to 0",
     total_eps="Overrides total episode of anime",
     ep_rate="Overrides number of episodes watching per meeting"
 )
@@ -294,7 +319,7 @@ async def addq(
     ping_notice: int = None,
     location: str = None,
     react_emoji: str = None,
-    starting_ep: int = None,
+    ep_progress: int = None,
     total_eps: int = None,
     ep_rate: int = None,
 ):
@@ -331,7 +356,7 @@ async def addq(
     if ping_notice is None: ping_notice = request_data.ping_notice
     if location is None: location = request_data.location
     if react_emoji is None: react_emoji = request_data.emoji
-    if starting_ep is None: starting_ep = request_data.current_ep
+    if ep_progress is None: ep_progress = request_data.ep_progress
     if total_eps is None: total_eps = request_data.total_eps
     if ep_rate is None: ep_rate = request_data.ep_rate
     
@@ -349,7 +374,7 @@ async def addq(
         time=request_data.time,
         ping_notice=ping_notice,
         location=location,
-        current_ep=starting_ep,
+        ep_progress=ep_progress,
         total_eps=total_eps,
         ep_rate=ep_rate,
     )
@@ -370,8 +395,8 @@ async def addq(
         f"**New Role Added, requested by <@{request_data.requester_id}>**\n"
         f"**Role:** `{role_name}`\n"
     )
-    if starting_ep is not None:
-        message += f"Starting at episode `{bot.data.roles[role_name].current_ep}`"
+    if ep_progress is not None:
+        message += f"Episode progress `{bot.data.roles[role_name].ep_progress}`"
         if total_eps is not None:
             message += f" out of `{bot.data.roles[role_name].total_eps}` episodes"
         if ep_rate is not None:
@@ -416,7 +441,7 @@ async def listq(interaction: discord.Interaction):
     ping_notice="Notice relative to time of meeting in minutes, defaults to no ping",
     location="Description for where meeting is",
     react_emoji="Emoji for the reaction",
-    starting_ep="Starting episode, defaults to 1, for edge cases (ie episode 0/prologue), just leave as 1",
+    ep_progress="Starting episode progress, defaults to 0, for edge cases (ie episode 0/prologue), just leave as 0",
     total_eps="Overrides total episode of anime, defaults to what anilist finds",
     ep_rate="Number of episodes watching per meeting, defaults to 1"
 )
@@ -430,8 +455,8 @@ async def add(
     ping_notice: int = None,
     location: str = None,
     react_emoji: str = None,
-    starting_ep: int = 1,
-    total_eps: int = None,
+    ep_progress: int = 0,
+    total_eps: int = 1,
     ep_rate: int = 1,
 ):
     await interaction.response.defer()
@@ -488,7 +513,7 @@ async def add(
         time=parsed_time.isoformat() if parsed_time else None,
         ping_notice=ping_notice,
         location=location,
-        current_ep=starting_ep,
+        ep_progress=ep_progress,
         total_eps=total_eps,
         ep_rate=ep_rate,
     )
@@ -509,8 +534,8 @@ async def add(
         f"**<@{interaction.user.id}> created New Role**\n"
         f"**Role:** `{role_name}`\n"
     )
-    if starting_ep is not None:
-        message += f"Starting at episode `{bot.data.roles[role_name].current_ep}`"
+    if ep_progress is not None:
+        message += f"Starting episode progress `{bot.data.roles[role_name].ep_progress}`"
         if total_eps is not None:
             message += f" out of `{bot.data.roles[role_name].total_eps}` episodes"
         if ep_rate is not None:
@@ -537,6 +562,9 @@ async def rm(interaction: discord.Interaction, role_name: str):
         await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
         return
     del bot.data.roles[role_name]
+    if role is None:
+        await interaction.followup.send(f"[Warning] Role is not in server, but {role_name} was deleted", ephemeral=True)
+        return
     key_to_del = next((k for k, v in bot.data.reaction_map.items() if v == role.id), None)
     await role.delete(reason=f"Deleted by {interaction.user.name}")
     if key_to_del:
@@ -568,10 +596,10 @@ async def listroles(interaction: discord.Interaction):
     role_name="The name of the role",
     day=f"Day of week of meeting(e.g., mon, tue in `{TIME_ZONE}`)",
     time=f"Time of day of meeting(e.g., 14:30, 2:30 PM in `{TIME_ZONE}`)",
-    ping_notice="Notice relative to time of meeting in minutes, defaults to no ping",
+    ping_notice="Notice relative to time of meeting in minutes, and negative ping_notice means no ping",
     location="Description for where meeting is",
     react_emoji="Emoji for the reaction, (note: changing the emoji removes the old_emoji, users will retain their role but the new_emoji will not accurately reflect their role)",
-    current_ep="Current episode we are on (what episode we will watch next time)",
+    ep_progress="Current episode progress (how many episode we have completed)",
     total_eps="Total episode of anime",
     ep_rate="Number of episodes watching per meeting"
 )
@@ -585,7 +613,7 @@ async def edit_role(
     ping_notice: int = None,
     location: str = None,
     react_emoji: str = None,
-    current_ep: int = None,
+    ep_progress: int = None,
     total_eps: int = None,
     ep_rate: int = None,
 ):
@@ -598,7 +626,7 @@ async def edit_role(
         await interaction.followup.send(f"Role {role_name} not found, existing list: {available_roles}", ephemeral=True)
         return
     role_name = role_name.strip()
-    old_current_ep = bot.data.roles[role_name].current_ep
+    old_ep_progress = bot.data.roles[role_name].ep_progress
     old_total_eps = bot.data.roles[role_name].total_eps
     old_ep_rate = bot.data.roles[role_name].ep_rate
     old_day = bot.data.roles[role_name].day
@@ -625,9 +653,13 @@ async def edit_role(
 
     if day_int is not None: bot.data.roles[role_name].day = day_int
     if time is not None: bot.data.roles[role_name].time = parsed_time.isoformat()
-    if ping_notice is not None: bot.data.roles[role_name].ping_notice = ping_notice
+    if ping_notice is not None: 
+        if ping_notice < 0:
+            bot.data.roles[role_name].ping_notice = None
+        else:
+            bot.data.roles[role_name].ping_notice = ping_notice
     if location is not None: bot.data.roles[role_name].location = location
-    if current_ep is not None: bot.data.roles[role_name].current_ep = current_ep
+    if ep_progress is not None: bot.data.roles[role_name].ep_progress = ep_progress
     if total_eps is not None: bot.data.roles[role_name].total_eps = total_eps
     if ep_rate is not None: bot.data.roles[role_name].ep_rate = ep_rate
 
@@ -661,10 +693,10 @@ async def edit_role(
     await update_role_message()
     bot.save_data()
 
-    if current_ep is not None and (current_ep != old_current_ep):
-        message += f"**Current episode** `{old_current_ep}`->`{bot.data.roles[role_name].current_ep}`\n"
+    if ep_progress is not None and (ep_progress != old_ep_progress):
+        message += f"**Current episode progress** `{old_ep_progress}`->`{bot.data.roles[role_name].ep_progress}`\n"
     else:
-        message += f"**Current episode** `{bot.data.roles[role_name].current_ep}`\n"
+        message += f"**Current episode progress** `{bot.data.roles[role_name].ep_progress}`\n"
     if total_eps is not None and (total_eps != old_total_eps):
         message += f"**Total episodes** `{old_total_eps}`->`{bot.data.roles[role_name].total_eps}`\n"
     else:
@@ -806,10 +838,10 @@ async def update_role_message():
         if role_info and role_info.day is not None and role_info.time:
             time_obj = dt.time.fromisoformat(role_info.time)
             formatted_time = time_obj.strftime("%I:%M %p")
-            temp = f" {role_info.location} " if role_info.location else ""
-            message += f" on `{day_names[role_info.day]}` at `{formatted_time}`{temp}with `{role_info.ping_notice}` minute notice"
-        if role_info.current_ep is not None and role_info.total_eps is not None and role_info.ep_rate:
-            message += f" Currently on episode `{role_info.current_ep}/{role_info.total_eps}`"
+            temp = f" {role_info.location}" if role_info.location else ""
+            message += f" on `{day_names[role_info.day]}` at `{formatted_time}`{temp} with `{role_info.ping_notice}` minute notice"
+        if role_info.ep_progress is not None and role_info.total_eps is not None and role_info.ep_rate:
+            message += f" current episode progress `{role_info.ep_progress}/{role_info.total_eps}`"
         message += "\n"
 
     await msg.edit(content=message)
