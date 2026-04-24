@@ -299,7 +299,7 @@ async def request_role(interaction: discord.Interaction,
 
 @bot.tree.command(name="mal_login", description="Link your MyAnimeList account to the bot")
 async def mal_login(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     if bot.get_valid_mal_token(interaction.user.id) is None:
         await interaction.followup.send("MyAnimeList account already linked", ephemeral=True)
         return
@@ -464,7 +464,7 @@ async def rmq(interaction: discord.Interaction, role_name: str = None, ):
 @bot.tree.command(name="listq", description="Displays request queue")
 @app_commands.default_permissions(manage_roles=True)
 async def listq(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     await interaction.followup.send(f"list queue:\n{bot.data.role_queue}", ephemeral=True)
 
 @bot.tree.command(name="add", description="Adds a role, bypassing the queue")
@@ -623,7 +623,7 @@ async def rm(interaction: discord.Interaction, role_name: str):
 @bot.tree.command(name="list", description="Displays All Watchalong Roles")
 @app_commands.default_permissions(manage_roles=True)
 async def listroles(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     await interaction.followup.send(f"role list:\n{bot.data.roles}", ephemeral=True)
 
 @bot.tree.command(name="edit", description="Edits the data of an existing role")
