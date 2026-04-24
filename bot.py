@@ -5,12 +5,14 @@ import os
 from dotenv import load_dotenv
 from db import MyBot, RoleRequest, RoleClass
 import emoji
-from utils import parse_schedule, get_available_emoji
+from utils import parse_schedule, get_available_emoji, get_datetime, compare_weekday, check_ping_tracker
 import zoneinfo
 import datetime as dt
 from datetime import timedelta
 import asyncio
 import aiohttp
+import psutil
+import secrets
 
 load_dotenv()
 
@@ -22,11 +24,25 @@ TIME_ZONE = os.getenv("TIME_ZONE")
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 
 bot = MyBot(command_prefix="$", intents=intents)
 
 ping_tracker: dict[str, dt.datetime] = {}
 day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+@tasks.loop(hours=1)
+async def print_memory():
+    await bot.wait_until_ready()
+
+    process = psutil.Process(os.getpid())
+    mem_mb = process.memory_info().rss / (1024 ** 2)
+    
+    system_mem = psutil.virtual_memory().percent
+    
+    print(f"Bot Memory Usage: {mem_mb:.2f} MB")
+    print(f"System Memory Usage: {system_mem}%")
 
 @tasks.loop(seconds=60)
 async def weekly_ping_task():
@@ -39,65 +55,45 @@ async def weekly_ping_task():
         return
 
     for role_name, role_data in list(bot.data.roles.items()):
-        if role_data.ping_notice is None or role_data.day is None or role_data.time is None:
-            if role_data.day is not None or role_data.time is not None:
-                time_obj = dt.time.fromisoformat(role_data.time)
-                temp_days = role_data.day-now.weekday()
-                target_date = now + timedelta(days=temp_days)
-                target_dt_obj = dt.datetime.combine(target_date, time_obj)
-                if target_dt_obj.day == now.day:
-                    if now.hour == target_dt_obj.hour and now.minute == target_dt_obj.minute:
-                        role = ping_channel.guild.get_role(role_data.role_id)
-                        if role and role_data.ep_progress is not None:
-                            if role_data.ep_rate is not None:
-                                    role_data.ep_progress += role_data.ep_rate
+        role = ping_channel.guild.get_role(role_data.role_id)
+        if role is None or role_data.day is None or role_data.time is None or role_data.ep_progress is None or role_data.ep_rate is None or role_data.total_eps is None:
             continue
-        time_obj = dt.time.fromisoformat(role_data.time)
-        temp_days = role_data.day-now.weekday()
-        if temp_days < 0 or (temp_days == 0 and now.replace(microsecond=0).time() > time_obj): temp_days+=7
-        target_date = now + timedelta(days=temp_days)
-        dt_obj = dt.datetime.combine(target_date, time_obj)
-        target_dt_obj = dt_obj - timedelta(minutes=role_data.ping_notice)
-        if target_dt_obj.day == now.day:
-            if now.hour == target_dt_obj.hour and now.minute == target_dt_obj.minute:
-                last_ping = ping_tracker.get(role_name)
-                if (last_ping is None or (last_ping.second != target_dt_obj.second or
-                    last_ping.minute != target_dt_obj.minute or 
-                    last_ping.hour != target_dt_obj.hour or
-                    last_ping.day != target_dt_obj.day or
-                    last_ping.month != target_dt_obj.month or
-                    last_ping.year != target_dt_obj.year)):
-                    role = ping_channel.guild.get_role(role_data.role_id)
-                    if role:
-                        if role_data.ep_progress is not None and role_data.total_eps is not None and role_data.ep_progress > role_data.total_eps:
-                            await role.delete(reason="Anime Finished")
-                            
-                            key_to_del = next((k for k, v in bot.data.reaction_map.items() if v == role_data.role_id), None)
-                            if key_to_del:
-                                del bot.data.reaction_map[key_to_del]
 
-                                role_channel = bot.get_channel(ROLE_CHANNEL_ID)
-                                role_message = await role_channel.fetch_message(bot.react_message_id)
-                                await role_message.clear_reaction(key_to_del)
-                            
-                            del bot.data.roles[role_name]
-                            await update_role_message()
-                            bot.save_data()
-                            continue
-                        message = (f"{role.mention} Reminder that we will be watching **{role_name}**")
-                        if role_data.ep_progress is not None:
-                            if role_data.ep_rate and role_data.ep_rate > 1:
-                                message += f" - Episodes {role_data.ep_progress+1}-{role_data.ep_progress+role_data.ep_rate}"
-                            else:
-                                message += f" - Episode {role_data.ep_progress+1}"
-                            if role_data.ep_rate is not None:
-                                role_data.ep_progress += role_data.ep_rate
-                                bot.save_data()
-                                await update_role_message()
-                        message += f" in {role_data.ping_notice} minutes"
-                        if role_data.location is not None: message += f" at {role_data.location}!"
-                        await ping_channel.send(message)
-                    ping_tracker[role_name] = target_dt_obj
+        target_dt_obj = get_datetime(role_data, now)
+        if compare_weekday(target_dt_obj, now):
+            last_ping = ping_tracker.get(role_name)
+            if not check_ping_tracker(last_ping, target_dt_obj):
+                if role_data.ep_progress >= role_data.total_eps:
+                    await role.delete(reason="Anime Finished")
+                    
+                    key_to_del = next((k for k, v in bot.data.reaction_map.items() if v == role_data.role_id), None)
+                    if key_to_del:
+                        del bot.data.reaction_map[key_to_del]
+
+                        role_channel = bot.get_channel(ROLE_CHANNEL_ID)
+                        role_message = await role_channel.fetch_message(bot.react_message_id)
+                        await role_message.clear_reaction(key_to_del)
+                    
+                    del bot.data.roles[role_name]
+                    del ping_tracker[role_name]
+                    await update_role_message()
+                    await bot.save_data()
+                    continue
+                ping_tracker[role_name] = target_dt_obj
+                if role_data.ping_notice is not None:
+                    message = (f"{role.mention} Reminder that we will be watching **{role_name}**")
+                    if role_data.ep_rate > 1:
+                        message += f" - Episodes {role_data.ep_progress+1}-{role_data.ep_progress+role_data.ep_rate}"
+                    else:
+                        message += f" - Episode {role_data.ep_progress+1}"
+                    message += f" in {role_data.ping_notice} minutes"
+                    if role_data.location is not None: message += f" at {role_data.location}!"
+                    await ping_channel.send(message)
+                role_data.ep_progress += role_data.ep_rate
+                await bot.save_data()
+                await update_role_message()
+                for member in role.members:
+                    asyncio.create_task(bot.update_mal_episode(member.id, role_name, role_data.ep_progress))
 
 # Autocomplete 
 async def queued_roles_autocomplete(
@@ -148,7 +144,7 @@ async def anilist_search_autocomplete(
     '''
     variables = {'search': current}
 
-    timeout = aiohttp.ClientTimeout(total=2.0)
+    timeout = aiohttp.ClientTimeout(total=1.2)
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -186,6 +182,10 @@ async def on_ready():
         weekly_ping_task.start()
         print("Weekly ping loop started!")
 
+    if not print_memory.is_running():
+        print_memory.start()
+
+# user cmds
 @bot.tree.command(name="rq", description="Request a new anime watchalong role")
 @app_commands.describe(
     role_name="The name of the role (autofills from anilist database)",
@@ -264,7 +264,7 @@ async def request_role(interaction: discord.Interaction,
         ep_rate=ep_rate,
         emoji=react_emoji
     )
-    bot.save_data()
+    await bot.save_data()
 
     day_str = "n/a"
     time_str = "n/a"
@@ -297,6 +297,40 @@ async def request_role(interaction: discord.Interaction,
     message += f"\nAdmins: Use `/addq {role_name}` or `/rmq {role_name}` to accept or deny."
     await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
 
+@bot.tree.command(name="mal_login", description="Link your MyAnimeList account to the bot")
+async def mal_login(interaction: discord.Interaction):
+    await interaction.response.defer()
+    if bot.get_valid_mal_token(interaction.user.id) is None:
+        await interaction.followup.send("MyAnimeList account already linked", ephemeral=True)
+        return
+    client_id = os.getenv("MAL_CLIENT_ID")
+    redirect_uri = os.getenv("REDIRECT_URI")
+
+    if not client_id:
+        await interaction.followup.send("The bot owner has not set up MAL API keys yet.", ephemeral=True)
+        return
+
+    # MAL requires a secure, random string 43 to 128 characters long
+    code_verifier = secrets.token_urlsafe(100)[:128]
+    
+    await bot.save_code_verifier(interaction.user.id, code_verifier)
+    
+    auth_url = (
+        f"https://myanimelist.net/v1/oauth2/authorize"
+        f"?response_type=code"
+        f"&client_id={client_id}"
+        f"&code_challenge={code_verifier}"
+        f"&code_challenge_method=plain"
+        f"&state={interaction.user.id}" 
+        f"&redirect_uri={redirect_uri}"
+    )
+
+    await interaction.followup.send(
+        f"Click [here]({auth_url}) to authorize the bot with your MyAnimeList account if you want automatic list updates", 
+        ephemeral=True
+    )
+
+# admin cmds
 @bot.tree.command(name="addq", description="Approve a role from the queue")
 @app_commands.describe(
     role_name="The name of the role, Leave blank to approve the most recent request",
@@ -389,7 +423,7 @@ async def addq(
         time_str = dt_obj.strftime("%I:%M %p")
     del bot.data.role_queue[role_name]
     await update_role_message()
-    bot.save_data()
+    await bot.save_data()
 
     message = (
         f"**New Role Added, requested by <@{request_data.requester_id}>**\n"
@@ -422,7 +456,7 @@ async def rmq(interaction: discord.Interaction, role_name: str = None, ):
         role_name = list(bot.data.role_queue.keys())[-1]
     if(role_name in bot.data.role_queue):
         del bot.data.role_queue[role_name]
-        bot.save_data()
+        await bot.save_data()
         await interaction.followup.send(f"Successfully removed {role_name}", ephemeral=True)
     else:
         await interaction.followup.send(f"No request by that name, list:\n{list(bot.data.role_queue.keys())}", ephemeral=True)
@@ -520,7 +554,7 @@ async def add(
 
     bot.data.reaction_map[react_emoji] = role.id
     await update_role_message()
-    bot.save_data()
+    await bot.save_data()
 
     day_str = None
     time_str = None
@@ -562,6 +596,7 @@ async def rm(interaction: discord.Interaction, role_name: str):
         await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
         return
     del bot.data.roles[role_name]
+    del ping_tracker[role_name]
     if role is None:
         await interaction.followup.send(f"[Warning] Role is not in server, but {role_name} was deleted", ephemeral=True)
         return
@@ -582,7 +617,7 @@ async def rm(interaction: discord.Interaction, role_name: str):
                 print(f"[WARNING] Could not clear reactions for {key_to_del}: {e}")
 
         await update_role_message()
-        bot.save_data()
+        await bot.save_data()
     await interaction.followup.send(f"The role {role.name} has been deleted by <@{interaction.user.id}>.", allowed_mentions=discord.AllowedMentions(users=False))
 
 @bot.tree.command(name="list", description="Displays All Watchalong Roles")
@@ -691,7 +726,7 @@ async def edit_role(
             message += f"Changed Reaction Emoji from {old_emoji}->{react_emoji}"
 
     await update_role_message()
-    bot.save_data()
+    await bot.save_data()
 
     if ep_progress is not None and (ep_progress != old_ep_progress):
         message += f"**Current episode progress** `{old_ep_progress}`->`{bot.data.roles[role_name].ep_progress}`\n"
@@ -755,15 +790,19 @@ async def skip(interaction: discord.Interaction, role_name: str):
     formatted = target_dt_obj.strftime("%A %I:%M %p")
     await interaction.followup.send(f"<@{interaction.user.id}> skiping planned ping `{formatted}`", allowed_mentions=discord.AllowedMentions(users=False))
 
-
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.MissingAnyRole):
         await interaction.response.send_message("❌ You do not have permission to use this command. Avaliable cmds include /rq /listq /list or ask an admin for approval", ephemeral=True)
     else:
-        print(f"App Command Error: {error}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
+        print(error)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
+            else:
+                await interaction.followup.send("An error occurred while processing the command.", ephemeral=True)
+        except discord.HTTPException:
+            pass
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -790,6 +829,7 @@ async def on_raw_reaction_add(payload):
 
         if role:
             await payload.member.add_roles(role)
+            mal_login()
         else:
             print(f"[ERROR] Could not find role from role id: {role_id} for reaction: {payload.emoji}")
 
@@ -860,7 +900,7 @@ async def init_react_message():
     message = await channel.send(f"**Role Menu: Anime Watchalongs**\n"
                         f"React to give yourself a role.\n")
     bot.react_message_id = message.id
-    bot.save_data()
+    await bot.save_data()
 
 async def move_reacts(old_emoji, new_emoji):
     channel = bot.get_channel(ROLE_CHANNEL_ID)

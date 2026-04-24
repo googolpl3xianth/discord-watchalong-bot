@@ -1,4 +1,6 @@
 import datetime
+import zoneinfo
+import os
 
 def parse_schedule(day_str: str, time_str: str):
     """
@@ -59,3 +61,28 @@ def get_available_emoji(bot):
         if emoji not in bot.data.reaction_map:
             return emoji
     return None
+
+def get_datetime(role_data, now=None) -> datetime:
+    if now is None:
+        now = datetime.datetime.now(zoneinfo.ZoneInfo(os.getenv("TIME_ZONE")))
+    time_obj = datetime.time.fromisoformat(role_data.time)
+    temp_days = role_data.day-now.weekday()
+    if temp_days < 0 or (temp_days == 0 and now.replace(microsecond=0).time() > time_obj): temp_days+=7
+    target_date = now + datetime.timedelta(days=temp_days)
+    target_dt_obj = datetime.datetime.combine(target_date, time_obj)
+    if(role_data.ping_notice is not None):
+        target_dt_obj = target_dt_obj - datetime.timedelta(minutes=role_data.ping_notice)
+    return target_dt_obj
+
+def compare_weekday(date: datetime, now: datetime = None) -> bool:
+     if now is None:
+        now = datetime.datetime.now(zoneinfo.ZoneInfo(os.getenv("TIME_ZONE")))
+     return now.day == date.day and now.hour == date.hour and now.minute == date.minute
+
+def check_ping_tracker(last_ping: datetime, date: datetime) -> bool:
+    return (last_ping is not None and (last_ping.second == date.second and
+            last_ping.minute == date.minute and
+            last_ping.hour == date.hour and
+            last_ping.day == date.day and
+            last_ping.month == date.month and
+            last_ping.year == date.year))
