@@ -75,7 +75,8 @@ async def weekly_ping_task():
                         await role_message.clear_reaction(key_to_del)
                     
                     del bot.data.roles[role_name]
-                    del ping_tracker[role_name]
+                    if role_name in ping_tracker:
+                        del ping_tracker[role_name]
                     await update_role_message()
                     await bot.save_data()
                     continue
@@ -300,7 +301,7 @@ async def request_role(interaction: discord.Interaction,
 @bot.tree.command(name="mal_login", description="Link your MyAnimeList account to the bot")
 async def mal_login(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    if await bot.get_valid_mal_token(interaction.user.id) is None:
+    if await bot.get_valid_mal_token(interaction.user.id) is not None:
         await interaction.followup.send("MyAnimeList account already linked", ephemeral=True)
         return
     client_id = os.getenv("MAL_CLIENT_ID")
@@ -596,7 +597,8 @@ async def rm(interaction: discord.Interaction, role_name: str):
         await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
         return
     del bot.data.roles[role_name]
-    del ping_tracker[role_name]
+    if role_name in ping_tracker:
+        del ping_tracker[role_name]
     if role is None:
         await interaction.followup.send(f"[Warning] Role is not in server, but {role_name} was deleted", ephemeral=True)
         return
