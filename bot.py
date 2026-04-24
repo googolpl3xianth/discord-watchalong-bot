@@ -831,7 +831,6 @@ async def on_raw_reaction_add(payload):
 
         if role:
             await payload.member.add_roles(role)
-            mal_login()
         else:
             print(f"[ERROR] Could not find role from role id: {role_id} for reaction: {payload.emoji}")
 
