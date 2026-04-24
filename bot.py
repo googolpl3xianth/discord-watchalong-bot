@@ -300,7 +300,7 @@ async def request_role(interaction: discord.Interaction,
 @bot.tree.command(name="mal_login", description="Link your MyAnimeList account to the bot")
 async def mal_login(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    if bot.get_valid_mal_token(interaction.user.id) is None:
+    if await bot.get_valid_mal_token(interaction.user.id) is None:
         await interaction.followup.send("MyAnimeList account already linked", ephemeral=True)
         return
     client_id = os.getenv("MAL_CLIENT_ID")
