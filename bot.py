@@ -175,6 +175,11 @@ async def anilist_search_autocomplete(
 @bot.event
 async def on_ready():
     print("Bot online")
+
+    for guild in bot.guilds:
+        await guild.chunk()
+        print(f"Loaded {len(guild.members)} members for {guild.name}")
+        
     if bot.react_message_id is None:
         await init_react_message()
     await update_role_message()

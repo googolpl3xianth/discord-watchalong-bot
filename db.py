@@ -249,20 +249,22 @@ class MyBot(commands.Bot):
         return access_token
 
     async def update_mal_episode(self, user_id: int, anime_name: str, current_ep: int):
-        token = await self.get_valid_mal_token(user_id)
-        if not token:
-            return
-
-        headers = {'Authorization': f'Bearer {token}'}
-        
         try:
+            token = await self.get_valid_mal_token(user_id)
+            if not token:
+                return
+
+            headers = {'Authorization': f'Bearer {token}'}
+        
             async with aiohttp.ClientSession() as session:
                 search_url = f"https://api.myanimelist.net/v2/anime"
                 async with session.get(search_url, params={'q': anime_name, 'limit': 1}, headers=headers) as search_resp:
                     if search_resp.status != 200:
+                        print(f"[MAL Error] Search failed with status {search_resp.status}: {await search_resp.text()}")
                         return
                     search_data = await search_resp.json()
                     if not search_data.get('data'):
+                        print(f"[MAL Error] Could not find anime '{anime_name}' on MyAnimeList.")
                         return
                     
                     anime_id = search_data['data'][0]['node']['id']
@@ -274,6 +276,9 @@ class MyBot(commands.Bot):
                 }
                 
                 async with session.patch(update_url, data=update_data, headers=headers) as update_resp:
-                    pass
+                    if update_resp.status not in [200, 201]:
+                        print(f"[MAL Error] Update failed with status {update_resp.status}: {await update_resp.text()}")
         except Exception as e:
-            print(f"Failed to update MAL for user {user_id}: {e}")
+            import traceback
+            print(f"[MAL Fatal Error] Exception in update_mal_episode for user {user_id}: {e}")
+            traceback.print_exc()
