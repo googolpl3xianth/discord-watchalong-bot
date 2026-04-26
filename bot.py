@@ -95,6 +95,8 @@ async def weekly_ping_task():
                 await update_role_message()
                 for member in role.members:
                     asyncio.create_task(bot.update_mal_episode(member.id, role_name, role_data.ep_progress))
+        else:
+            print(f"{role_name}'s date {target_dt_obj} is not now {now}")
 
 # Autocomplete 
 async def queued_roles_autocomplete(
@@ -175,9 +177,8 @@ async def anilist_search_autocomplete(
 @bot.event
 async def on_ready():
     print("Bot online")
-
+    
     for guild in bot.guilds:
-        await guild.chunk()
         print(f"Loaded {len(guild.members)} members for {guild.name}")
         
     if bot.react_message_id is None:
