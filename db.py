@@ -283,7 +283,7 @@ class MyBot(commands.Bot):
                         print(f"[MAL Error] AniList does not have a MAL ID linked for '{anime_name}'.")
                         return
 
-                    print(f"[MAL] Translated '{anime_name}' to MAL ID: {anime_id} ({mal_title})")
+                    #print(f"[MAL] Translated '{anime_name}' to MAL ID: {anime_id} ({mal_title})")
 
                 update_url = f"https://api.myanimelist.net/v2/anime/{anime_id}/my_list_status"
                 update_data = {

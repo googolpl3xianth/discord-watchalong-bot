@@ -96,7 +96,8 @@ async def weekly_ping_task():
                 for member in role.members:
                     asyncio.create_task(bot.update_mal_episode(member.id, role_name, role_data.ep_progress))
         else:
-            print(f"{role_name}'s date {target_dt_obj} is not now {now}")
+            #print(f"{role_name}'s date {target_dt_obj} is not now {now}")
+            pass
 
 # Autocomplete 
 async def queued_roles_autocomplete(
