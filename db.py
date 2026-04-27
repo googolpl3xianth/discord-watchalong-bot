@@ -259,31 +259,34 @@ class MyBot(commands.Bot):
             async with aiohttp.ClientSession() as session:
                 al_query = '''
                 query ($search: String) {
-                  Media (search: $search, type: ANIME, sort: SEARCH_MATCH) {
-                    idMal
-                    title { romaji }
+                  Page (page: 1, perPage: 1) {
+                    media (search: $search, type: ANIME, sort: SEARCH_MATCH) {
+                      idMal
+                      title { romaji }
+                    }
                   }
                 }
                 '''
                 async with session.post('https://graphql.anilist.co', json={'query': al_query, 'variables': {'search': anime_name}}) as al_resp:
                     if al_resp.status != 200:
-                        print(f"[MAL Error] AniList translator failed: {await al_resp.text()}")
+                        print(f"[MAL Error] AniList API returned an error: {await al_resp.text()}")
                         return
                     
                     al_data = await al_resp.json()
                     
-                    if not al_data.get('data') or not al_data['data'].get('Media'):
+                    media_list = al_data.get('data', {}).get('Page', {}).get('media', [])
+                    
+                    if not media_list:
                         print(f"[MAL Error] Could not find '{anime_name}' on AniList to translate.")
                         return
                         
-                    anime_id = al_data['data']['Media']['idMal']
-                    mal_title = al_data['data']['Media']['title']['romaji']
+                    best_match = media_list[0]
+                    anime_id = best_match.get('idMal')
+                    mal_title = best_match.get('title', {}).get('romaji', 'Unknown')
                     
                     if not anime_id:
                         print(f"[MAL Error] AniList does not have a MAL ID linked for '{anime_name}'.")
                         return
-
-                    #print(f"[MAL] Translated '{anime_name}' to MAL ID: {anime_id} ({mal_title})")
 
                 update_url = f"https://api.myanimelist.net/v2/anime/{anime_id}/my_list_status"
                 update_data = {
