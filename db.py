@@ -7,6 +7,7 @@ import datetime
 from aiohttp import web
 import aiohttp
 import os
+import re
 
 def json_datetime_serializer(obj):
     if isinstance(obj, datetime.datetime):
@@ -253,6 +254,8 @@ class MyBot(commands.Bot):
             token = await self.get_valid_mal_token(user_id)
             if not token:
                 return
+
+            anime_name = re.sub(r'\s*\([0-9A-Za-z]+ Eps\)', '', anime_name, flags=re.IGNORECASE).strip()
 
             headers = {'Authorization': f'Bearer {token}'}
         
