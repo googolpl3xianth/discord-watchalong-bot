@@ -13,6 +13,7 @@ import asyncio
 import aiohttp
 import psutil
 import secrets
+import re
 
 load_dotenv()
 
@@ -243,6 +244,14 @@ async def request_role(interaction: discord.Interaction,
         
         if eps_string != "Unknown" and eps_string.isdigit():
             total_eps = int(eps_string)
+    else:
+        match = re.search(r'\s*\(([0-9]+|Unknown)\s*Eps\)$', role_name, flags=re.IGNORECASE)
+        if match:
+            eps_string = match.group(1)
+            role_name = re.sub(r'\s*\(([0-9]+|Unknown)\s*Eps\)$', '', role_name, flags=re.IGNORECASE).strip()
+            
+            if eps_string != "Unknown" and eps_string.isdigit():
+                total_eps = int(eps_string)
 
     if len(role_name) > 100:
         await interaction.followup.send("❌ Role names cannot be longer than 100 characters.", ephemeral=True)
@@ -522,6 +531,14 @@ async def add(
         
         if eps_string != "Unknown" and eps_string.isdigit():
             total_eps = int(eps_string)
+    else:
+        match = re.search(r'\s*\(([0-9]+|Unknown)\s*Eps\)$', role_name, flags=re.IGNORECASE)
+        if match:
+            eps_string = match.group(1)
+            role_name = re.sub(r'\s*\(([0-9]+|Unknown)\s*Eps\)$', '', role_name, flags=re.IGNORECASE).strip()
+            
+            if eps_string != "Unknown" and eps_string.isdigit():
+                total_eps = int(eps_string)
 
     if len(role_name) > 100:
         await interaction.followup.send("❌ Role names cannot be longer than 100 characters.", ephemeral=True)
