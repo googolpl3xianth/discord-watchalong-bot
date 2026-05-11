@@ -257,15 +257,18 @@ class MyBot(commands.Bot):
 
             anime_name = re.sub(r'\s*\([0-9A-Za-z]+ Eps\)', '', anime_name, flags=re.IGNORECASE).strip()
 
+            safe_search = re.sub(r'[^a-zA-Z0-9\s]', ' ', anime_name)
+            safe_search = re.sub(r'\s+', ' ', safe_search).strip()
+
             headers = {'Authorization': f'Bearer {token}'}
         
             async with aiohttp.ClientSession() as session:
                 al_query = '''
                 query ($search: String) {
-                  Page (page: 1, perPage: 1) {
+                  Page (page: 1, perPage: 5) {
                     media (search: $search, type: ANIME, sort: SEARCH_MATCH) {
                       idMal
-                      title { romaji }
+                      title { romaji english }
                     }
                   }
                 }
@@ -280,15 +283,26 @@ class MyBot(commands.Bot):
                     media_list = al_data.get('data', {}).get('Page', {}).get('media', [])
                     
                     if not media_list:
-                        print(f"[MAL Error] Could not find '{anime_name}' on AniList to translate.")
+                        print(f"[MAL Error] Could not find '{safe_search}' on AniList to translate.")
                         return
+
+                    target_media = None
+                    for media in media_list:
+                        eng = (media.get('title', {}).get('english') or '').strip()
+                        rom = (media.get('title', {}).get('romaji') or '').strip()
                         
-                    best_match = media_list[0]
-                    anime_id = best_match.get('idMal')
-                    mal_title = best_match.get('title', {}).get('romaji', 'Unknown')
+                        # Compare against the original clean name (ignoring case)
+                        if eng.lower() == anime_name.lower() or rom.lower() == anime_name.lower():
+                            target_media = media
+                            break
+                        
+                    if not target_media:
+                        target_media = media_list[0]
+                    anime_id = target_media.get('idMal')
+                    mal_title = target_media.get('title', {}).get('romaji') or target_media.get('title', {}).get('english') or 'Unknown'
                     
                     if not anime_id:
-                        print(f"[MAL Error] AniList does not have a MAL ID linked for '{anime_name}'.")
+                        print(f"[MAL Error] AniList does not have a MAL ID linked for '{mal_title}'.")
                         return
 
                 update_url = f"https://api.myanimelist.net/v2/anime/{anime_id}/my_list_status"
