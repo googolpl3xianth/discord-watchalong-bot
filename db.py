@@ -255,9 +255,9 @@ class MyBot(commands.Bot):
             if not token:
                 return
 
-            anime_name = re.sub(r'\s*\([0-9A-Za-z]+ Eps\)', '', anime_name, flags=re.IGNORECASE).strip()
+            clean_title = re.sub(r'\s*\([0-9A-Za-z]+ Eps\)', '', anime_name, flags=re.IGNORECASE).strip()
 
-            safe_search = re.sub(r'[^a-zA-Z0-9\s]', ' ', anime_name)
+            safe_search = re.sub(r'[^a-zA-Z0-9\s]', ' ', clean_title)
             safe_search = re.sub(r'\s+', ' ', safe_search).strip()
 
             headers = {'Authorization': f'Bearer {token}'}
@@ -273,7 +273,7 @@ class MyBot(commands.Bot):
                   }
                 }
                 '''
-                async with session.post('https://graphql.anilist.co', json={'query': al_query, 'variables': {'search': anime_name}}) as al_resp:
+                async with session.post('https://graphql.anilist.co', json={'query': al_query, 'variables': {'search': safe_search}}) as al_resp:
                     if al_resp.status != 200:
                         print(f"[MAL Error] AniList API returned an error: {await al_resp.text()}")
                         return
@@ -292,7 +292,7 @@ class MyBot(commands.Bot):
                         rom = (media.get('title', {}).get('romaji') or '').strip()
                         
                         # Compare against the original clean name (ignoring case)
-                        if eng.lower() == anime_name.lower() or rom.lower() == anime_name.lower():
+                        if eng.lower() == clean_title.lower() or rom.lower() == clean_title.lower():
                             target_media = media
                             break
                         

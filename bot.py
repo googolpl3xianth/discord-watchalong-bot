@@ -61,19 +61,10 @@ async def weekly_ping_task():
             continue
 
         target_dt_obj = get_datetime(role_data, now)
-        if target_dt_obj.weekday() == now.weekday():
-            print(f"[Loop Debug] Evaluating '{role_name}':")
-            print(f"    Current Code Time: {now.strftime('%H:%M:%S %Z')}")
-            print(f"    Calculated Target: {target_dt_obj.strftime('%H:%M:%S %Z')}")
-            print(f"    Day Match: {compare_weekday(target_dt_obj, now)}")
-            
-            last_ping = ping_tracker.get(role_name)
-            print(f"    Ping Tracker Allowed: {not check_ping_tracker(last_ping, target_dt_obj)}")
 
         if compare_weekday(target_dt_obj, now):
             last_ping = ping_tracker.get(role_name)
             if not check_ping_tracker(last_ping, target_dt_obj):
-                print(f"[EXECUTION] Triggering event for {role_name}!")
                 if role_data.ep_progress >= role_data.total_eps:
                     await role.delete(reason="Anime Finished")
                     
