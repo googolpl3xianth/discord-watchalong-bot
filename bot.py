@@ -461,6 +461,8 @@ async def addq(
     if location:
         message += f"**Location:** {bot.data.roles[role_name].location}\n"
 
+    await interaction.followup.send(message, ephemeral=True, allowed_mentions=discord.AllowedMentions(users=False))
+    
     channel = bot.get_channel(PING_CHANNEL_ID)
     await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
 
@@ -608,6 +610,8 @@ async def add(
             message += f"**Ping:** `{bot.data.roles[role_name].ping_notice}` minutes before meeting\n"
     if location:
         message += f"**Location:** {bot.data.roles[role_name].location}\n"
+
+    await interaction.followup.send(message, ephemeral=True, allowed_mentions=discord.AllowedMentions(users=False))
 
     channel = bot.get_channel(PING_CHANNEL_ID)
     await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
