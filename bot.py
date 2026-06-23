@@ -813,6 +813,7 @@ async def skip(interaction: discord.Interaction, role_name: str):
     role_data = bot.data.roles[role_name]
     if role_data.ping_notice is None or role_data.day is None or role_data.time is None:
         await interaction.followup.send(f"Warning, no ping notice/day/time set for {role_name}: {role_data}", ephemeral=True)
+        return
     time_obj = dt.time.fromisoformat(role_data.time)
     temp_days = role_data.day-now.weekday()
     if temp_days < 0 or (temp_days == 0 and now.time() > time_obj): temp_days+=7

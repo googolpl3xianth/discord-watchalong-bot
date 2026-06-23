@@ -67,7 +67,7 @@ def get_datetime(role_data, now=None) -> datetime:
         now = datetime.datetime.now(zoneinfo.ZoneInfo(os.getenv("TIME_ZONE")))
     time_obj = datetime.time.fromisoformat(role_data.time)
     temp_days = role_data.day-now.weekday()
-    if temp_days < 0 or (temp_days == 0 and now.replace(microsecond=0).time() > time_obj): temp_days+=7
+    if temp_days < 0 or (temp_days == 0 and now.replace(second=0, microsecond=0).time() > time_obj): temp_days+=7
     target_date = now + datetime.timedelta(days=temp_days)
     target_dt_obj = datetime.datetime.combine(target_date, time_obj)
     if(role_data.ping_notice is not None):
