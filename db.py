@@ -253,6 +253,7 @@ class MyBot(commands.Bot):
         try:
             token = await self.get_valid_mal_token(user_id)
             if not token:
+                print(f"[Error] no token for user: {user_id} in database")
                 return
 
             clean_title = re.sub(r'\s*\([0-9A-Za-z]+ Eps\)', '', anime_name, flags=re.IGNORECASE).strip()
@@ -291,7 +292,6 @@ class MyBot(commands.Bot):
                         eng = (media.get('title', {}).get('english') or '').strip()
                         rom = (media.get('title', {}).get('romaji') or '').strip()
                         
-                        # Compare against the original clean name (ignoring case)
                         if eng.lower() == clean_title.lower() or rom.lower() == clean_title.lower():
                             target_media = media
                             break
@@ -314,6 +314,8 @@ class MyBot(commands.Bot):
                 async with session.patch(update_url, data=update_data, headers=headers) as update_resp:
                     if update_resp.status not in [200, 201]:
                         print(f"[MAL Error] Update failed with status {update_resp.status}: {await update_resp.text()}")
+                    else:
+                        print(f"Successfully updated mal list for title: {safe_search}")
         except Exception as e:
             import traceback
             print(f"[MAL Fatal Error] Exception in update_mal_episode for user {user_id}: {e}")
