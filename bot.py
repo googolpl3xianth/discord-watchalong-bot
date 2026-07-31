@@ -811,15 +811,18 @@ async def skip(interaction: discord.Interaction, role_name: str):
     now = dt.datetime.now(zoneinfo.ZoneInfo(TIME_ZONE))
 
     role_data = bot.data.roles[role_name]
-    if role_data.ping_notice is None or role_data.day is None or role_data.time is None:
-        await interaction.followup.send(f"Warning, no ping notice/day/time set for {role_name}: {role_data}", ephemeral=True)
+    if role_data.day is None or role_data.time is None:
+        await interaction.followup.send(f"Warning, no day/time set for {role_name}: {role_data}", ephemeral=True)
         return
     time_obj = dt.time.fromisoformat(role_data.time)
     temp_days = role_data.day-now.weekday()
     if temp_days < 0 or (temp_days == 0 and now.time() > time_obj): temp_days+=7
     target_date = now + timedelta(days=temp_days)
     dt_obj = dt.datetime.combine(target_date, time_obj)
-    target_dt_obj = dt_obj - timedelta(minutes=role_data.ping_notice)
+    if role_data.ping_notice is not None:
+        target_dt_obj = dt_obj - timedelta(minutes=role_data.ping_notice)
+    else:
+        target_dt_obj = dt_obj
     ping_tracker[role_name] = target_dt_obj
 
     formatted = target_dt_obj.strftime("%A %I:%M %p")
