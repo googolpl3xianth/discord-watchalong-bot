@@ -908,8 +908,8 @@ async def update_role_message():
         if not role_info:
             continue
 
-        sort_day = role_info.day if role_info.day else 7
-        sort_time = role_info.time if role_info.time else "23:59:59"
+        sort_day = role_info.day if role_info.day is not None else 7
+        sort_time = role_info.time if role_info.time is not None else "23:59:59"
 
         sorted_roles.append((sort_day, sort_time, emoji, role.name, role_info))
 
