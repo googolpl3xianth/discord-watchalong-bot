@@ -897,18 +897,31 @@ async def update_role_message():
     except Exception as e:
         await init_react_message()
         msg = await channel.fetch_message(bot.react_message_id)
+    
+    sorted_roles = []
+
+    for emoji, role_id in bot.data.reaction_map.items():
+        role = channel.guild.get_role(role_id)
+        if not role:
+            continue
+        role_info = bot.data.roles.get(role.name)
+        if not role_info:
+            continue
+
+        sort_day = role_info.day if role_info.day else 7
+        sort_time = role_info.time if role_info.time else "23:59:59"
+
+        sorted_roles.append((sort_day, sort_time, emoji, role.name, role_info))
+
+    sorted_roles.sort(key=lambda x: (x[0], x[1]))
 
     message = (
         f"**Role Menu: Anime Watchalongs**\n"
         f"React to give yourself a role.\n"
     )
     global day_names
-    for emoji, role_id in bot.data.reaction_map.items():
-        role = channel.guild.get_role(role_id)
-        if not role:
-            continue
-        role_info = bot.data.roles.get(role.name)
-        message += (f"\n{emoji} : `{role.name}`")
+    for sort_day, sort_time, emoji, role_name, RoleClass(role_info) in sorted_roles:
+        message += (f"\n{emoji} : `{role_name}`")
         if role_info and role_info.day is not None and role_info.time:
             time_obj = dt.time.fromisoformat(role_info.time)
             formatted_time = time_obj.strftime("%I:%M %p")
