@@ -920,7 +920,7 @@ async def update_role_message():
         f"React to give yourself a role.\n"
     )
     global day_names
-    for sort_day, sort_time, emoji, role_name, RoleClass(role_info) in sorted_roles:
+    for sort_day, sort_time, emoji, role_name, role_info in sorted_roles:
         message += (f"\n{emoji} : `{role_name}`")
         if role_info and role_info.day is not None and role_info.time:
             time_obj = dt.time.fromisoformat(role_info.time)
