@@ -206,9 +206,11 @@ async def on_ready():
     react_emoji="Emoji for the reaction",
     ep_progress="Starting amount of episodes watched, defaults to 0, for edge cases (ie ep 0/prologue), just leave as 0",
     total_eps="Overrides total episode of anime, defaults to what anilist finds or 1 if unable to find",
-    ep_rate="Number of episodes watching per meeting, defaults to 1"
+    ep_rate="Number of episodes watching per meeting, defaults to 1",
+    continuation="Role name if it is a continuation of an existing role, defaults to none"
 )
 @app_commands.autocomplete(role_name=anilist_search_autocomplete)
+@app_commands.autocomplete(continuation=watchalong_roles_autocomplete)
 async def request_role(interaction: discord.Interaction,
     role_name: str, 
     day: str = None,
@@ -219,6 +221,7 @@ async def request_role(interaction: discord.Interaction,
     ep_progress: int = 0,
     total_eps: int = 1,
     ep_rate: int = 1,
+    continuation: str = None,
 ):
     await interaction.response.defer()
 
@@ -238,6 +241,12 @@ async def request_role(interaction: discord.Interaction,
     if len(bot.data.roles) >= 20:
         await interaction.followup.send("❌ The role menu is full! (Discord limits messages to 20 reactions). Please request an admin to remove old roles first.", ephemeral=True)
         return
+
+    if continuation is not None:
+        cont_role = discord.utils.get(interaction.guild.roles, name=continuation)
+        if role_name not in bot.data.roles:
+            await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
+            return
     
     if "|eps:" in role_name:
         actual_role_name, eps_string = role_name.rsplit("|eps:", 1)
@@ -280,7 +289,7 @@ async def request_role(interaction: discord.Interaction,
         ep_progress=ep_progress,
         total_eps=total_eps,
         ep_rate=ep_rate,
-        emoji=react_emoji
+        emoji=react_emoji,
     )
     await bot.save_data()
 
@@ -311,6 +320,9 @@ async def request_role(interaction: discord.Interaction,
             message += f"**Ping:** `{bot.data.role_queue[role_name].ping_notice}` minutes before meeting\n"
     if location:
         message += f"**Location:** {bot.data.role_queue[role_name].location}\n"
+
+    if continuation is not None:
+        message +=f"\n*This is a continuation of {cont_role}"
 
     message += f"\nAdmins: Use `/addq {role_name}` or `/rmq {role_name}` to accept or deny."
     await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
@@ -359,10 +371,12 @@ async def mal_login(interaction: discord.Interaction):
     react_emoji="Overwrites requet's emoji for the reaction",
     ep_progress="Overwrites starting episode progress, for edge cases (ie episode 0/prologue), just set to 0",
     total_eps="Overrides total episode of anime",
-    ep_rate="Overrides number of episodes watching per meeting"
+    ep_rate="Overrides number of episodes watching per meeting",
+    continuation="Role name if it is a continuation of an existing role, defaults to none"
 )
 @app_commands.default_permissions(manage_roles=True)
 @app_commands.autocomplete(role_name=queued_roles_autocomplete)
+@app_commands.autocomplete(continuation=watchalong_roles_autocomplete)
 async def addq(
     interaction: discord.Interaction, 
     role_name: str = None, 
@@ -374,6 +388,7 @@ async def addq(
     ep_progress: int = None,
     total_eps: int = None,
     ep_rate: int = None,
+    continuation: str = None,
 ):
     await interaction.response.defer()
     if(not role_name):
@@ -411,6 +426,14 @@ async def addq(
     if ep_progress is None: ep_progress = request_data.ep_progress
     if total_eps is None: total_eps = request_data.total_eps
     if ep_rate is None: ep_rate = request_data.ep_rate
+    if continuation is None: contiuation = request_data.contiuation
+
+    cont_role = None
+    if continuation is not None:
+        cont_role = discord.utils.get(interaction.guild.roles, name=continuation)
+        if role_name not in bot.data.roles:
+            await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
+            return
     
     perms = discord.Permissions(send_messages=True, read_messages=True)
     role = await interaction.guild.create_role(
@@ -440,6 +463,11 @@ async def addq(
         dt_obj = dt.time.fromisoformat(bot.data.roles[role_name].time)
         time_str = dt_obj.strftime("%I:%M %p")
     del bot.data.role_queue[role_name]
+
+    if cont_role is not None:
+        for member in cont_role.members:
+            member.add_roles(role)
+
     await update_role_message()
     await bot.save_data()
 
@@ -460,6 +488,9 @@ async def addq(
             message += f"**Ping:** `{bot.data.roles[role_name].ping_notice}` minutes before meeting\n"
     if location:
         message += f"**Location:** {bot.data.roles[role_name].location}\n"
+
+    if continuation is not None:
+        message +=f"\n*This is a continuation of {cont_role}"
 
     await interaction.followup.send(message, ephemeral=True, allowed_mentions=discord.AllowedMentions(users=False))
     
@@ -498,10 +529,12 @@ async def listq(interaction: discord.Interaction):
     react_emoji="Emoji for the reaction",
     ep_progress="Starting episode progress, defaults to 0, for edge cases (ie episode 0/prologue), just leave as 0",
     total_eps="Overrides total episode of anime, defaults to what anilist finds",
-    ep_rate="Number of episodes watching per meeting, defaults to 1"
+    ep_rate="Number of episodes watching per meeting, defaults to 1",
+    continuation="Role name if it is a continuation of an existing role, defaults to none"
 )
 @app_commands.default_permissions(manage_roles=True)
 @app_commands.autocomplete(role_name=anilist_search_autocomplete)
+@app_commands.autocomplete(continuation=watchalong_roles_autocomplete)
 async def add(
     interaction: discord.Interaction, 
     role_name: str, 
@@ -513,6 +546,7 @@ async def add(
     ep_progress: int = 0,
     total_eps: int = 1,
     ep_rate: int = 1,
+    continuation: str = None,
 ):
     await interaction.response.defer()
     if not role_name:
@@ -528,6 +562,13 @@ async def add(
     if len(bot.data.roles) >= 20:
         await interaction.followup.send("❌ The role menu is full! (Discord limits messages to 20 reactions). Please remove old roles first.", ephemeral=True)
         return
+
+    cont_role = None
+    if continuation is not None:
+        cont_role = discord.utils.get(interaction.guild.roles, name=continuation)
+        if role_name not in bot.data.roles:
+            await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
+            return
     
     if "|eps:" in role_name:
         actual_role_name, eps_string = role_name.rsplit("|eps:", 1)
@@ -582,6 +623,10 @@ async def add(
     )
 
     bot.data.reaction_map[react_emoji] = role.id
+
+    if cont_role is not None:
+        for member in cont_role.members:
+            member.add_roles(role)
     await update_role_message()
     await bot.save_data()
 
@@ -610,6 +655,9 @@ async def add(
             message += f"**Ping:** `{bot.data.roles[role_name].ping_notice}` minutes before meeting\n"
     if location:
         message += f"**Location:** {bot.data.roles[role_name].location}\n"
+
+    if continuation is not None:
+        message +=f"\n*This is a continuation of {cont_role}"
 
     await interaction.followup.send(message, ephemeral=True, allowed_mentions=discord.AllowedMentions(users=False))
 

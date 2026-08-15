@@ -25,6 +25,7 @@ class RoleRequest:
     total_eps: int = None
     ep_rate: int = 1
     emoji: str = None
+    contiuation: str = None
 
 @dataclass
 class RoleClass:
