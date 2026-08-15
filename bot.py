@@ -244,7 +244,7 @@ async def request_role(interaction: discord.Interaction,
 
     if continuation is not None:
         cont_role = discord.utils.get(interaction.guild.roles, name=continuation)
-        if role_name not in bot.data.roles:
+        if continuation not in bot.data.roles:
             await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
             return
     
@@ -431,7 +431,7 @@ async def addq(
     cont_role = None
     if continuation is not None:
         cont_role = discord.utils.get(interaction.guild.roles, name=continuation)
-        if role_name not in bot.data.roles:
+        if continuation not in bot.data.roles:
             await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
             return
     
@@ -567,7 +567,7 @@ async def add(
     cont_role = None
     if continuation is not None:
         cont_role = discord.utils.get(interaction.guild.roles, name=continuation)
-        if role_name not in bot.data.roles:
+        if continuation not in bot.data.roles:
             await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
             return
     
