@@ -466,7 +466,7 @@ async def addq(
 
     if cont_role is not None:
         for member in cont_role.members:
-            member.add_roles(role)
+            await member.add_roles(role)
 
     await update_role_message()
     await bot.save_data()
@@ -627,7 +627,7 @@ async def add(
 
     if cont_role is not None:
         for member in cont_role.members:
-            member.add_roles(role)
+            await member.add_roles(role)
     await update_role_message()
     await bot.save_data()
 
