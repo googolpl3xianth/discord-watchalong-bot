@@ -492,10 +492,11 @@ async def addq(
     if continuation is not None:
         message +=f"\n*This is a continuation of {cont_role}"
 
-    await interaction.followup.send(message, ephemeral=True, allowed_mentions=discord.AllowedMentions(users=False))
-    
-    channel = bot.get_channel(PING_CHANNEL_ID)
-    await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
+    if continuation is None:
+        channel = bot.get_channel(PING_CHANNEL_ID)
+        await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
+    else:
+        await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
 
 
 @bot.tree.command(name="rmq", description="Remove request from queue")
@@ -659,10 +660,11 @@ async def add(
     if continuation is not None:
         message +=f"\n*This is a continuation of {cont_role}"
 
-    await interaction.followup.send(message, ephemeral=True, allowed_mentions=discord.AllowedMentions(users=False))
-
-    channel = bot.get_channel(PING_CHANNEL_ID)
-    await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
+    if continuation is None:
+        channel = bot.get_channel(PING_CHANNEL_ID)
+        await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
+    else:
+        await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
 
 @bot.tree.command(name="rm", description="Removes a watchalong role")
 @app_commands.describe(
