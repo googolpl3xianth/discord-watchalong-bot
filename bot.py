@@ -173,8 +173,8 @@ async def anilist_search_autocomplete(
                         anilist_cache.clear()
 
                     return choices
-    except (asyncio.TimeoutError, aiohttp.ClientError):
-        pass
+    except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+        print(f"An error occurred: {e}")
     return []
 
 @bot.event
