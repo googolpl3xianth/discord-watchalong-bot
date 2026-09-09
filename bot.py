@@ -494,6 +494,7 @@ async def addq(
 
     if continuation is None:
         channel = bot.get_channel(PING_CHANNEL_ID)
+        await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
         await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
     else:
         await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
@@ -662,6 +663,7 @@ async def add(
 
     if continuation is None:
         channel = bot.get_channel(PING_CHANNEL_ID)
+        await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
         await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
     else:
         await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
