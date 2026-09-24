@@ -95,8 +95,9 @@ async def weekly_ping_task():
                 role_data.ep_progress += role_data.ep_rate
                 await bot.save_data()
                 await update_role_message()
-                for member in role.members:
-                    asyncio.create_task(bot.update_mal_episode(member.id, role_name, role_data.ep_progress))
+                if role_data.update_mal:
+                    for member in role.members:
+                        asyncio.create_task(bot.update_mal_episode(member.id, role_name, role_data.ep_progress))
         else:
             #print(f"{role_name}'s date {target_dt_obj} is not now {now}")
             pass
@@ -192,8 +193,8 @@ async def on_ready():
         weekly_ping_task.start()
         print("Weekly ping loop started!")
 
-    if not print_memory.is_running():
-        print_memory.start()
+    #if not print_memory.is_running():
+    #    print_memory.start()
 
 # user cmds
 @bot.tree.command(name="rq", description="Request a new anime watchalong role")
@@ -207,7 +208,8 @@ async def on_ready():
     ep_progress="Starting amount of episodes watched, defaults to 0, for edge cases (ie ep 0/prologue), just leave as 0",
     total_eps="Overrides total episode of anime, defaults to what anilist finds or 1 if unable to find",
     ep_rate="Number of episodes watching per meeting, defaults to 1",
-    continuation="Role name if it is a continuation of an existing role, defaults to none"
+    continuation="Role name if it is a continuation of an existing role, defaults to none",
+    update_mal="Set True if updates should be reflected in mal"
 )
 @app_commands.autocomplete(role_name=anilist_search_autocomplete)
 @app_commands.autocomplete(continuation=watchalong_roles_autocomplete)
@@ -222,6 +224,7 @@ async def request_role(interaction: discord.Interaction,
     total_eps: int = 1,
     ep_rate: int = 1,
     continuation: str = None,
+    update_mal: bool = False,
 ):
     await interaction.response.defer()
 
@@ -290,6 +293,7 @@ async def request_role(interaction: discord.Interaction,
         total_eps=total_eps,
         ep_rate=ep_rate,
         emoji=react_emoji,
+        update_mal=update_mal,
     )
     await bot.save_data()
 
@@ -372,7 +376,8 @@ async def mal_login(interaction: discord.Interaction):
     ep_progress="Overwrites starting episode progress, for edge cases (ie episode 0/prologue), just set to 0",
     total_eps="Overrides total episode of anime",
     ep_rate="Overrides number of episodes watching per meeting",
-    continuation="Role name if it is a continuation of an existing role, defaults to none"
+    continuation="Role name if it is a continuation of an existing role, defaults to none",
+    update_mal="Set True if updates should be reflected in mal",
 )
 @app_commands.default_permissions(manage_roles=True)
 @app_commands.autocomplete(role_name=queued_roles_autocomplete)
@@ -389,6 +394,7 @@ async def addq(
     total_eps: int = None,
     ep_rate: int = None,
     continuation: str = None,
+    update_mal: bool = False,
 ):
     await interaction.response.defer()
     if(not role_name):
@@ -452,6 +458,7 @@ async def addq(
         ep_progress=ep_progress,
         total_eps=total_eps,
         ep_rate=ep_rate,
+        update_mal=update_mal,
     )
 
     bot.data.reaction_map[react_emoji] = role.id
@@ -532,7 +539,8 @@ async def listq(interaction: discord.Interaction):
     ep_progress="Starting episode progress, defaults to 0, for edge cases (ie episode 0/prologue), just leave as 0",
     total_eps="Overrides total episode of anime, defaults to what anilist finds",
     ep_rate="Number of episodes watching per meeting, defaults to 1",
-    continuation="Role name if it is a continuation of an existing role, defaults to none"
+    continuation="Role name if it is a continuation of an existing role, defaults to none",
+    update_mal="Set True if updates should be reflected in mal",
 )
 @app_commands.default_permissions(manage_roles=True)
 @app_commands.autocomplete(role_name=anilist_search_autocomplete)
@@ -549,6 +557,7 @@ async def add(
     total_eps: int = 1,
     ep_rate: int = 1,
     continuation: str = None,
+    update_mal: bool = False,
 ):
     await interaction.response.defer()
     if not role_name:
@@ -622,6 +631,7 @@ async def add(
         ep_progress=ep_progress,
         total_eps=total_eps,
         ep_rate=ep_rate,
+        update_mal=update_mal,
     )
 
     bot.data.reaction_map[react_emoji] = role.id
@@ -722,7 +732,8 @@ async def listroles(interaction: discord.Interaction):
     react_emoji="Emoji for the reaction, (note: changing the emoji removes the old_emoji, users will retain their role but the new_emoji will not accurately reflect their role)",
     ep_progress="Current episode progress (how many episode we have completed)",
     total_eps="Total episode of anime",
-    ep_rate="Number of episodes watching per meeting"
+    ep_rate="Number of episodes watching per meeting",
+    update_mal="Set True if updates should be reflected in mal",
 )
 @app_commands.default_permissions(manage_roles=True)
 @app_commands.autocomplete(role_name=watchalong_roles_autocomplete)
@@ -737,6 +748,7 @@ async def edit_role(
     ep_progress: int = None,
     total_eps: int = None,
     ep_rate: int = None,
+    update_mal: bool = None,
 ):
     await interaction.response.defer()
     if not role_name:
@@ -754,6 +766,7 @@ async def edit_role(
     old_time = bot.data.roles[role_name].time
     old_ping_notice = bot.data.roles[role_name].ping_notice
     old_location = bot.data.roles[role_name].location
+    old_update_mal = bot.data.roles[role_name].update_mal
     old_day_str = "n/a"
     old_time_str = "n/a"
     global day_names
@@ -783,10 +796,11 @@ async def edit_role(
     if ep_progress is not None: bot.data.roles[role_name].ep_progress = ep_progress
     if total_eps is not None: bot.data.roles[role_name].total_eps = total_eps
     if ep_rate is not None: bot.data.roles[role_name].ep_rate = ep_rate
+    if update_mal is not None: bot.data.roles[role_name].update_mal = update_mal
 
     day_str = None
     time_str = None
-    if bot.data.roles[role_name].day:
+    if bot.data.roles[role_name].day is not None:
         day_str = day_names[bot.data.roles[role_name].day]
     if parsed_time:
         time_str = parsed_time.strftime("%I:%M %p")
@@ -839,6 +853,7 @@ async def edit_role(
         message += f"**Location:** {old_location} -> {bot.data.roles[role_name].location}\n"
     else:
         message += f"**Location:** {bot.data.roles[role_name].location}\n"
+    if(update_mal is not None): message += f"Update MAL: `{old_update_mal}` -> `{update_mal}`"
     await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
 
 @bot.tree.command(name="pings", description="Lists ping history (Only tracks latest ping, a future ping indicates that ping will be skipped)")
@@ -878,7 +893,7 @@ async def skip(interaction: discord.Interaction, role_name: str):
     ping_tracker[role_name] = target_dt_obj
 
     formatted = target_dt_obj.strftime("%A %I:%M %p")
-    await interaction.followup.send(f"<@{interaction.user.id}> skiping planned ping `{formatted}`", allowed_mentions=discord.AllowedMentions(users=False))
+    await interaction.followup.send(f"<@{interaction.user.id}> skipping planned ping `{formatted}`", allowed_mentions=discord.AllowedMentions(users=False))
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -973,6 +988,7 @@ async def update_role_message():
     message = (
         f"**Role Menu: Anime Watchalongs**\n"
         f"React to give yourself a role.\n"
+        f"Members can use /rq to request an anime as a watchalong to be approved by an admin\n"
     )
     global day_names
     for sort_day, sort_time, emoji, role_name, role_info in sorted_roles:
@@ -1000,7 +1016,8 @@ async def update_role_message():
 async def init_react_message():
     channel = bot.get_channel(ROLE_CHANNEL_ID)
     message = await channel.send(f"**Role Menu: Anime Watchalongs**\n"
-                        f"React to give yourself a role.\n")
+                                 f"React to give yourself a role.\n"
+                                 f"Members can use /rq to request an anime as a watchalong to be approved by an admin\n")
     bot.react_message_id = message.id
     await bot.save_data()
 

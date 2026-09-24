@@ -26,6 +26,7 @@ class RoleRequest:
     ep_rate: int = 1
     emoji: str = None
     contiuation: str = None
+    update_mal: bool = False
 
 @dataclass
 class RoleClass:
@@ -37,6 +38,7 @@ class RoleClass:
     total_eps: int = None
     ep_rate: int = None
     location: str = None
+    update_mal: bool = False
 
 class data_struct:
     def __init__(self):
