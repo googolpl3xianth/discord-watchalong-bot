@@ -26,7 +26,7 @@ class RoleRequest:
     ep_rate: int = 1
     emoji: str = None
     contiuation: str = None
-    update_mal: bool = False
+    update_mal: bool = True
 
 @dataclass
 class RoleClass:
