@@ -224,7 +224,7 @@ async def request_role(interaction: discord.Interaction,
     total_eps: int = 1,
     ep_rate: int = 1,
     continuation: str = None,
-    update_mal: bool = False,
+    update_mal: bool = True,
 ):
     await interaction.response.defer()
 
@@ -394,7 +394,7 @@ async def addq(
     total_eps: int = None,
     ep_rate: int = None,
     continuation: str = None,
-    update_mal: bool = False,
+    update_mal: bool = True,
 ):
     await interaction.response.defer()
     if(not role_name):
@@ -557,7 +557,7 @@ async def add(
     total_eps: int = 1,
     ep_rate: int = 1,
     continuation: str = None,
-    update_mal: bool = False,
+    update_mal: bool = True,
 ):
     await interaction.response.defer()
     if not role_name:
