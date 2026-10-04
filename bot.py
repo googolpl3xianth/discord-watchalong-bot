@@ -1019,11 +1019,23 @@ async def update_role_message(guild_id: int):
     sorted_roles = []
 
     for emoji, role_id in guildData.reaction_map.items():
-        role = channel.guild.get_role(role_id)
-        if not role:
-            continue
-        role_info = guildData.roles.get(role.name)
+        role_name = None
+        role_info = None
+
+        for name, info in guildData.roles.items():
+            info_role_id = getattr(info, 'role_id', None) if not isinstance(info, dict) else info.get('role_id')
+            if info_role_id == role_id:
+                role_name = name
+                role_info = info
+                break
+
         if not role_info:
+            role = channel.guild.get_role(role_id)
+            if role:
+                role_name = role.name
+                role_info = guildData.roles.get(role.name)
+
+        if not role_info or not role_name:
             continue
 
         sort_day = role_info.day if role_info.day is not None else 7
