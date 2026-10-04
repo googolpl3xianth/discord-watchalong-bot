@@ -277,7 +277,7 @@ async def request_role(interaction: discord.Interaction,
     
     day_int, parsed_time = parse_schedule(day, time)
     if(not react_emoji):
-        react_emoji = get_available_emoji(bot)
+        react_emoji = get_available_emoji(guildData)
     elif(not emoji.is_emoji(react_emoji)):
         await interaction.followup.send(f"Is not valid emoji", ephemeral=True)
 
@@ -623,7 +623,7 @@ async def add(
         return
 
     if(not react_emoji):
-        react_emoji = get_available_emoji(bot)
+        react_emoji = get_available_emoji(guildData)
     elif(not emoji.is_emoji(react_emoji)):
         await interaction.followup.send(f"Is not valid emoji", ephemeral=True)
 
