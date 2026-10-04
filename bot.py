@@ -1080,8 +1080,8 @@ async def init_react_message(guild_id: int):
     bot.data.guilds[guild_id].react_message_id = message.id
     await bot.save_data()
 
+
 @bot.tree.command(name="setup", description="Setup channels for bot")
-@app_commands.command(name="setup_channels", description="Set the channel for the anime role menu")
 @app_commands.describe(
     role_channel="channel where you want the role message where people react to get roles",
     ping_channel="channel where you want the ping for roles",
