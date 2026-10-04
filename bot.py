@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import tasks, commands
 import os
 from dotenv import load_dotenv
-from db import MyBot, RoleRequest, RoleClass
+from db import MyBot, RoleRequest, RoleClass, GuildData
 import emoji
 from utils import parse_schedule, get_available_emoji, get_datetime, compare_weekday, check_ping_tracker
 import zoneinfo
@@ -18,9 +18,6 @@ import re
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-TICKET_CHANNEL_ID = int(os.getenv("TICKET_CHANNEL_ID"))
-ROLE_CHANNEL_ID = int(os.getenv("ROLE_CHANNEL_ID"))
-PING_CHANNEL_ID = int(os.getenv("PING_CHANNEL_ID"))
 TIME_ZONE = os.getenv("TIME_ZONE")
 
 intents = discord.Intents.default()
@@ -50,57 +47,58 @@ async def weekly_ping_task():
     await bot.wait_until_ready()
     
     now = dt.datetime.now(zoneinfo.ZoneInfo(TIME_ZONE))
-    ping_channel = bot.get_channel(PING_CHANNEL_ID) 
-    if not ping_channel:
-        print(f"[ERROR] Ping channel not found at: {ping_channel}")
-        return
 
-    for role_name, role_data in list(bot.data.roles.items()):
-        role = ping_channel.guild.get_role(role_data.role_id)
-        if role is None or role_data.day is None or role_data.time is None or role_data.ep_progress is None or role_data.ep_rate is None or role_data.total_eps is None:
-            continue
+    for guild_id, guildData in bot.data.guilds.items():
+        ping_channel = bot.get_channel(guildData.ping_channel_id) 
+        if not ping_channel:
+            print(f"[ERROR] Ping channel not found at: {guildData}")
+            return
+        for role_name, role_data in list(guildData.roles.items()):
+            role = ping_channel.guild.get_role(role_data.role_id)
+            if role is None or role_data.day is None or role_data.time is None or role_data.ep_progress is None or role_data.ep_rate is None or role_data.total_eps is None:
+                continue
 
-        target_dt_obj = get_datetime(role_data, now)
+            target_dt_obj = get_datetime(role_data, now)
 
-        if compare_weekday(target_dt_obj, now):
-            last_ping = ping_tracker.get(role_name)
-            if not check_ping_tracker(last_ping, target_dt_obj):
-                if role_data.ep_progress >= role_data.total_eps:
-                    await role.delete(reason="Anime Finished")
-                    
-                    key_to_del = next((k for k, v in bot.data.reaction_map.items() if v == role_data.role_id), None)
-                    if key_to_del:
-                        del bot.data.reaction_map[key_to_del]
+            if compare_weekday(target_dt_obj, now):
+                last_ping = ping_tracker.get(role_name)
+                if not check_ping_tracker(last_ping, target_dt_obj):
+                    if role_data.ep_progress >= role_data.total_eps:
+                        await role.delete(reason="Anime Finished")
+                        
+                        key_to_del = next((k for k, v in guildData.reaction_map.items() if v == role_data.role_id), None)
+                        if key_to_del:
+                            del guildData.reaction_map[key_to_del]
 
-                        role_channel = bot.get_channel(ROLE_CHANNEL_ID)
-                        role_message = await role_channel.fetch_message(bot.react_message_id)
-                        await role_message.clear_reaction(key_to_del)
-                    
-                    del bot.data.roles[role_name]
-                    if role_name in ping_tracker:
-                        del ping_tracker[role_name]
-                    await update_role_message()
+                            role_channel = bot.get_channel(guildData.role_channel_id)
+                            role_message = await role_channel.fetch_message(guildData.react_message_id)
+                            await role_message.clear_reaction(key_to_del)
+                        
+                        del guildData.roles[role_name]
+                        if role_name in ping_tracker:
+                            del ping_tracker[role_name]
+                        await update_role_message(guild_id)
+                        await bot.save_data()
+                        continue
+                    ping_tracker[role_name] = target_dt_obj
+                    if role_data.ping_notice is not None:
+                        message = (f"{role.mention} Reminder that we will be watching **{role_name}**")
+                        if role_data.ep_rate > 1:
+                            message += f" - Episodes {role_data.ep_progress+1}-{role_data.ep_progress+role_data.ep_rate}"
+                        else:
+                            message += f" - Episode {role_data.ep_progress+1}"
+                        message += f" in {role_data.ping_notice} minutes"
+                        if role_data.location is not None: message += f" at {role_data.location}!"
+                        await ping_channel.send(message)
+                    role_data.ep_progress += role_data.ep_rate
                     await bot.save_data()
-                    continue
-                ping_tracker[role_name] = target_dt_obj
-                if role_data.ping_notice is not None:
-                    message = (f"{role.mention} Reminder that we will be watching **{role_name}**")
-                    if role_data.ep_rate > 1:
-                        message += f" - Episodes {role_data.ep_progress+1}-{role_data.ep_progress+role_data.ep_rate}"
-                    else:
-                        message += f" - Episode {role_data.ep_progress+1}"
-                    message += f" in {role_data.ping_notice} minutes"
-                    if role_data.location is not None: message += f" at {role_data.location}!"
-                    await ping_channel.send(message)
-                role_data.ep_progress += role_data.ep_rate
-                await bot.save_data()
-                await update_role_message()
-                if role_data.update_mal:
-                    for member in role.members:
-                        asyncio.create_task(bot.update_mal_episode(member.id, role_name, role_data.ep_progress))
-        else:
-            #print(f"{role_name}'s date {target_dt_obj} is not now {now}")
-            pass
+                    await update_role_message(guild_id)
+                    if role_data.update_mal:
+                        for member in role.members:
+                            asyncio.create_task(bot.update_mal_episode(member.id, role_name, role_data.ep_progress))
+            else:
+                #print(f"{role_name}'s date {target_dt_obj} is not now {now}")
+                pass
 
 # Autocomplete 
 async def queued_roles_autocomplete(
@@ -109,7 +107,7 @@ async def queued_roles_autocomplete(
 ) -> list[app_commands.Choice[str]]:
     choices = [
         app_commands.Choice(name=role_name, value=role_name)
-        for role_name in bot.data.role_queue.keys()
+        for role_name in bot.data.guilds[interaction.guild.id].role_queue.keys()
         if current.lower() in role_name.lower()
     ]
     return choices[:25]
@@ -120,7 +118,7 @@ async def watchalong_roles_autocomplete(
 ) -> list[app_commands.Choice[str]]:
     choices = [
         app_commands.Choice(name=role_name, value=role_name)
-        for role_name in bot.data.roles.keys()
+        for role_name in bot.data.guilds[interaction.guild.id].roles.keys()
         if current.lower() in role_name.lower()
     ]
     return choices[:25]
@@ -184,10 +182,11 @@ async def on_ready():
     
     for guild in bot.guilds:
         print(f"Loaded {len(guild.members)} members for {guild.name}")
-        
-    if bot.react_message_id is None:
-        await init_react_message()
-    await update_role_message()
+
+    for guild_id, guildData in bot.data.guilds.items():
+        if guildData.react_message_id is None:
+            await init_react_message(guild_id)
+        await update_role_message(guild_id)
 
     if not weekly_ping_task.is_running():
         weekly_ping_task.start()
@@ -227,28 +226,29 @@ async def request_role(interaction: discord.Interaction,
     update_mal: bool = True,
 ):
     await interaction.response.defer()
+    guildData = bot.data.guilds[interaction.guild.id]
 
     user = interaction.user
-    channel = bot.get_channel(TICKET_CHANNEL_ID)
+    channel = bot.get_channel(guildData.ticket_channel_id)
 
     if not channel:
         await interaction.followup.send("Failure to find channel", ephemeral=True)
         return
-    if(role_name in bot.data.roles):
-        await interaction.followup.send(f"Role {role_name} already exists: {bot.data.roles[role_name]}", ephemeral=True)
+    if(role_name in guildData.roles):
+        await interaction.followup.send(f"Role {role_name} already exists: {guildData.roles[role_name]}", ephemeral=True)
         return
     existing_role = discord.utils.get(interaction.guild.roles, name=role_name)
     if existing_role:
         await interaction.followup.send(f"❌ A role named `{role_name}` already exists in this server", ephemeral=True)
         return
-    if len(bot.data.roles) >= 20:
+    if len(guildData.roles) >= 20:
         await interaction.followup.send("❌ The role menu is full! (Discord limits messages to 20 reactions). Please request an admin to remove old roles first.", ephemeral=True)
         return
 
     if continuation is not None:
         cont_role = discord.utils.get(interaction.guild.roles, name=continuation)
-        if continuation not in bot.data.roles:
-            await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
+        if continuation not in guildData.roles:
+            await interaction.followup.send(f"Role must be a watchalong role, list: {list(guildData.roles.keys())}", ephemeral=True)
             return
     
     if "|eps:" in role_name:
@@ -283,7 +283,7 @@ async def request_role(interaction: discord.Interaction,
         await interaction.followup.send(f"❌ I didn't understand the time `{time}`. Try formats like `14:30` or `2:30 PM`.", ephemeral=True)
         return
 
-    bot.data.role_queue[role_name] = RoleRequest(
+    guildData.role_queue[role_name] = RoleRequest(
         requester_id=user.id,
         day=day_int,
         time=parsed_time.isoformat() if parsed_time else None,
@@ -301,7 +301,7 @@ async def request_role(interaction: discord.Interaction,
     time_str = "n/a"
     if day_int is not None:
         global day_names
-        day_str = day_names[bot.data.role_queue[role_name].day]
+        day_str = day_names[guildData.role_queue[role_name].day]
     if parsed_time:
         time_str = parsed_time.strftime("%I:%M %p")
 
@@ -312,18 +312,18 @@ async def request_role(interaction: discord.Interaction,
         f"**Role:** `{role_name}`\n"
     )
     if ep_progress is not None:
-        message += f"Starting at episode progress `{bot.data.role_queue[role_name].ep_progress}`"
+        message += f"Starting at episode progress `{guildData.role_queue[role_name].ep_progress}`"
         if total_eps is not None:
-            message += f" out of `{bot.data.role_queue[role_name].total_eps}` episodes"
+            message += f" out of `{guildData.role_queue[role_name].total_eps}` episodes"
         if ep_rate is not None:
-            message += f" watching `{bot.data.role_queue[role_name].ep_rate}` per meeting"
+            message += f" watching `{guildData.role_queue[role_name].ep_rate}` per meeting"
         message += "\n"
     if day_str or time_str:
         message += f"**Time:** Every `{day_str}` at `{time_str}` in `{TIME_ZONE}`\n"
         if ping_notice is not None:
-            message += f"**Ping:** `{bot.data.role_queue[role_name].ping_notice}` minutes before meeting\n"
+            message += f"**Ping:** `{guildData.role_queue[role_name].ping_notice}` minutes before meeting\n"
     if location:
-        message += f"**Location:** {bot.data.role_queue[role_name].location}\n"
+        message += f"**Location:** {guildData.role_queue[role_name].location}\n"
 
     if continuation is not None:
         message +=f"\n*This is a continuation of {cont_role}"
@@ -397,24 +397,26 @@ async def addq(
     update_mal: bool = True,
 ):
     await interaction.response.defer()
+
+    guildData = bot.data.guilds[interaction.guild.id]
     if(not role_name):
-        if(bot.data.role_queue):
-            role_name = list(bot.data.role_queue.keys())[-1]
+        if(guildData.role_queue):
+            role_name = list(guildData.role_queue.keys())[-1]
         else:
             await interaction.followup.send("Queue is empty", ephemeral=True)
             return
     
-    if role_name not in bot.data.role_queue:
-        await interaction.followup.send(f"No request by that name. Queue:\n{list(bot.data.role_queue.keys())}", ephemeral=True)
+    if role_name not in guildData.role_queue:
+        await interaction.followup.send(f"No request by that name. Queue:\n{list(guildData.role_queue.keys())}", ephemeral=True)
         return
 
-    if role_name in bot.data.roles:
+    if role_name in guildData.roles:
         await interaction.followup.send(f"Role `{role_name}` already exists!", ephemeral=True)
         return
     
     global day_names
 
-    request_data = bot.data.role_queue[role_name]
+    request_data = guildData.role_queue[role_name]
     if day is not None or time is not None:
         day_to_parse = day if day is not None else day_names[request_data.day]
         time_to_parse = time if time is not None else dt.time.fromisoformat(request_data.time).strftime("%H:%M")
@@ -432,13 +434,13 @@ async def addq(
     if ep_progress is None: ep_progress = request_data.ep_progress
     if total_eps is None: total_eps = request_data.total_eps
     if ep_rate is None: ep_rate = request_data.ep_rate
-    if continuation is None: contiuation = request_data.contiuation
+    if continuation is None: continuation = request_data.contiuation
 
     cont_role = None
     if continuation is not None:
         cont_role = discord.utils.get(interaction.guild.roles, name=continuation)
-        if continuation not in bot.data.roles:
-            await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
+        if continuation not in guildData.roles:
+            await interaction.followup.send(f"Role must be a watchalong role, list: {list(guildData.roles.keys())}", ephemeral=True)
             return
     
     perms = discord.Permissions(send_messages=True, read_messages=True)
@@ -449,7 +451,7 @@ async def addq(
         mentionable=True,
         hoist=False
     )
-    bot.data.roles[role_name] = RoleClass(
+    guildData.roles[role_name] = RoleClass(
         role_id=role.id,
         day=request_data.day,
         time=request_data.time,
@@ -461,21 +463,21 @@ async def addq(
         update_mal=update_mal,
     )
 
-    bot.data.reaction_map[react_emoji] = role.id
+    guildData.reaction_map[react_emoji] = role.id
 
     day_str = None
     time_str = None
     if(request_data.day is not None and request_data.time is not None and ping_notice is not None):
-        day_str = day_names[bot.data.roles[role_name].day]
-        dt_obj = dt.time.fromisoformat(bot.data.roles[role_name].time)
+        day_str = day_names[guildData.roles[role_name].day]
+        dt_obj = dt.time.fromisoformat(guildData.roles[role_name].time)
         time_str = dt_obj.strftime("%I:%M %p")
-    del bot.data.role_queue[role_name]
+    del guildData.role_queue[role_name]
 
     if cont_role is not None:
         for member in cont_role.members:
             await member.add_roles(role)
 
-    await update_role_message()
+    await update_role_message(interaction.guild.id)
     await bot.save_data()
 
     message = (
@@ -483,26 +485,29 @@ async def addq(
         f"**Role:** `{role_name}`\n"
     )
     if ep_progress is not None:
-        message += f"Episode progress `{bot.data.roles[role_name].ep_progress}`"
+        message += f"Episode progress `{guildData.roles[role_name].ep_progress}`"
         if total_eps is not None:
-            message += f" out of `{bot.data.roles[role_name].total_eps}` episodes"
+            message += f" out of `{guildData.roles[role_name].total_eps}` episodes"
         if ep_rate is not None:
-            message += f" watching `{bot.data.roles[role_name].ep_rate}` per meeting"
+            message += f" watching `{guildData.roles[role_name].ep_rate}` per meeting"
         message += "\n"
     if day_str or time_str:
         message += f"**Time:** Every `{day_str}` at `{time_str}` in `{TIME_ZONE}`\n"
         if ping_notice is not None:
-            message += f"**Ping:** `{bot.data.roles[role_name].ping_notice}` minutes before meeting\n"
+            message += f"**Ping:** `{guildData.roles[role_name].ping_notice}` minutes before meeting\n"
     if location:
-        message += f"**Location:** {bot.data.roles[role_name].location}\n"
+        message += f"**Location:** {guildData.roles[role_name].location}\n"
 
     if continuation is not None:
         message +=f"\n*This is a continuation of {cont_role}"
 
     if continuation is None:
-        channel = bot.get_channel(PING_CHANNEL_ID)
+        role_channel = bot.get_channel(guildData.role_channel_id)
+        if role_channel:
+            message += f"Join this watchalong by reacting to {react_emoji} in {role_channel.jump_url}"
+        ping_channel = bot.get_channel(guildData.ping_channel_id)
         await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
-        await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
+        await ping_channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
     else:
         await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
 
@@ -513,20 +518,21 @@ async def addq(
 @app_commands.autocomplete(role_name=queued_roles_autocomplete)
 async def rmq(interaction: discord.Interaction, role_name: str = None, ):
     await interaction.response.defer()
-    if(not role_name and bot.data.role_queue):
-        role_name = list(bot.data.role_queue.keys())[-1]
-    if(role_name in bot.data.role_queue):
-        del bot.data.role_queue[role_name]
+    guildData = bot.data.guilds[interaction.guild.id]
+    if(not role_name and guildData.role_queue):
+        role_name = list(guildData.role_queue.keys())[-1]
+    if(role_name in guildData.role_queue):
+        del guildData.role_queue[role_name]
         await bot.save_data()
         await interaction.followup.send(f"Successfully removed {role_name}", ephemeral=True)
     else:
-        await interaction.followup.send(f"No request by that name, list:\n{list(bot.data.role_queue.keys())}", ephemeral=True)
+        await interaction.followup.send(f"No request by that name, list:\n{list(guildData.role_queue.keys())}", ephemeral=True)
 
 @bot.tree.command(name="listq", description="Displays request queue")
 @app_commands.default_permissions(manage_roles=True)
 async def listq(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    await interaction.followup.send(f"list queue:\n{bot.data.role_queue}", ephemeral=True)
+    await interaction.followup.send(f"list queue:\n{bot.data.guilds[interaction.guild.id].role_queue}", ephemeral=True)
 
 @bot.tree.command(name="add", description="Adds a role, bypassing the queue")
 @app_commands.describe(
@@ -560,25 +566,27 @@ async def add(
     update_mal: bool = True,
 ):
     await interaction.response.defer()
+
+    guildData = bot.data.guilds[interaction.guild.id]
     if not role_name:
         await interaction.followup.send("No role name detected", ephemeral=True)
         return
-    if(role_name in bot.data.roles):
-        await interaction.followup.send(f"Role {role_name} already exists: {bot.data.roles[role_name]}", ephemeral=True)
+    if(role_name in guildData.roles):
+        await interaction.followup.send(f"Role {role_name} already exists: {guildData.roles[role_name]}", ephemeral=True)
         return
     existing_role = discord.utils.get(interaction.guild.roles, name=role_name)
     if existing_role:
         await interaction.followup.send(f"❌ A role named `{role_name}` already exists in this server", ephemeral=True)
         return
-    if len(bot.data.roles) >= 20:
+    if len(guildData.roles) >= 20:
         await interaction.followup.send("❌ The role menu is full! (Discord limits messages to 20 reactions). Please remove old roles first.", ephemeral=True)
         return
 
     cont_role = None
     if continuation is not None:
         cont_role = discord.utils.get(interaction.guild.roles, name=continuation)
-        if continuation not in bot.data.roles:
-            await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
+        if continuation not in guildData.roles:
+            await interaction.followup.send(f"Role must be a watchalong role, list: {list(guildData.roles.keys())}", ephemeral=True)
             return
     
     if "|eps:" in role_name:
@@ -622,7 +630,7 @@ async def add(
         mentionable=True,
         hoist=False
     )
-    bot.data.roles[role_name] = RoleClass(
+    guildData.roles[role_name] = RoleClass(
         role_id=role.id,
         day=day_int,
         time=parsed_time.isoformat() if parsed_time else None,
@@ -634,19 +642,19 @@ async def add(
         update_mal=update_mal,
     )
 
-    bot.data.reaction_map[react_emoji] = role.id
+    guildData.reaction_map[react_emoji] = role.id
 
     if cont_role is not None:
         for member in cont_role.members:
             await member.add_roles(role)
-    await update_role_message()
+    await update_role_message(interaction.guild.id)
     await bot.save_data()
 
     day_str = None
     time_str = None
     if day_int is not None:
         global day_names
-        day_str = day_names[bot.data.roles[role_name].day]
+        day_str = day_names[guildData.roles[role_name].day]
     if parsed_time:
         time_str = parsed_time.strftime("%I:%M %p")
 
@@ -655,26 +663,29 @@ async def add(
         f"**Role:** `{role_name}`\n"
     )
     if ep_progress is not None:
-        message += f"Starting episode progress `{bot.data.roles[role_name].ep_progress}`"
+        message += f"Starting episode progress `{guildData.roles[role_name].ep_progress}`"
         if total_eps is not None:
-            message += f" out of `{bot.data.roles[role_name].total_eps}` episodes"
+            message += f" out of `{guildData.roles[role_name].total_eps}` episodes"
         if ep_rate is not None:
-            message += f" watching `{bot.data.roles[role_name].ep_rate}` per meeting"
+            message += f" watching `{guildData.roles[role_name].ep_rate}` per meeting"
         message += "\n"
     if day_str and time_str:
         message += f"**Time:** Every `{day_str}` at `{time_str}` in `{TIME_ZONE}`\n"
         if ping_notice is not None:
-            message += f"**Ping:** `{bot.data.roles[role_name].ping_notice}` minutes before meeting\n"
+            message += f"**Ping:** `{guildData.roles[role_name].ping_notice}` minutes before meeting\n"
     if location:
-        message += f"**Location:** {bot.data.roles[role_name].location}\n"
+        message += f"**Location:** {guildData.roles[role_name].location}\n"
 
     if continuation is not None:
         message +=f"\n*This is a continuation of {cont_role}"
 
     if continuation is None:
-        channel = bot.get_channel(PING_CHANNEL_ID)
+        role_channel = bot.get_channel(guildData.role_channel_id)
+        if role_channel:
+            message += f"Join this watchalong by reacting to {react_emoji} in {role_channel.jump_url}"
+        ping_channel = bot.get_channel(guildData.ping_channel_id)
         await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
-        await channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
+        await ping_channel.send(message, allowed_mentions=discord.AllowedMentions(users=False))
     else:
         await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
 
@@ -686,33 +697,35 @@ async def add(
 @app_commands.autocomplete(role_name=watchalong_roles_autocomplete)
 async def rm(interaction: discord.Interaction, role_name: str):
     await interaction.response.defer()
+
+    guildData = bot.data.guilds[interaction.guild.id]
     role = discord.utils.get(interaction.guild.roles, name=role_name)
-    if role_name not in bot.data.roles:
-        await interaction.followup.send(f"Role must be a watchalong role, list: {list(bot.data.roles.keys())}", ephemeral=True)
+    if role_name not in guildData.roles:
+        await interaction.followup.send(f"Role must be a watchalong role, list: {list(guildData.roles.keys())}", ephemeral=True)
         return
-    del bot.data.roles[role_name]
+    del guildData.roles[role_name]
     if role_name in ping_tracker:
         del ping_tracker[role_name]
     if role is None:
         await interaction.followup.send(f"[Warning] Role is not in server, but {role_name} was deleted", ephemeral=True)
         return
-    key_to_del = next((k for k, v in bot.data.reaction_map.items() if v == role.id), None)
+    key_to_del = next((k for k, v in guildData.reaction_map.items() if v == role.id), None)
     await role.delete(reason=f"Deleted by {interaction.user.name}")
     if key_to_del:
-        del bot.data.reaction_map[key_to_del]
-        role_channel = bot.get_channel(int(ROLE_CHANNEL_ID))
+        del guildData.reaction_map[key_to_del]
+        role_channel = bot.get_channel(int(guildData.role_channel_id))
         if role_channel:
             try:
                 try:
-                    role_message = await role_channel.fetch_message(bot.react_message_id)
+                    role_message = await role_channel.fetch_message(guildData.react_message_id)
                 except Exception as e:
-                    await init_react_message()
-                    role_message = await role_channel.fetch_message(bot.react_message_id)
+                    await init_react_message(interaction.guild.id)
+                    role_message = await role_channel.fetch_message(guildData.react_message_id)
                 await role_message.clear_reaction(key_to_del)
             except Exception as e:
                 print(f"[WARNING] Could not clear reactions for {key_to_del}: {e}")
 
-        await update_role_message()
+        await update_role_message(interaction.guild.id)
         await bot.save_data()
     await interaction.followup.send(f"The role {role.name} has been deleted by <@{interaction.user.id}>.", allowed_mentions=discord.AllowedMentions(users=False))
 
@@ -720,7 +733,18 @@ async def rm(interaction: discord.Interaction, role_name: str):
 @app_commands.default_permissions(manage_roles=True)
 async def listroles(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    await interaction.followup.send(f"role list:\n{bot.data.roles}", ephemeral=True)
+    roles = bot.data.guilds[interaction.guild.id].roles
+    
+    if not roles:
+        await interaction.followup.send("No watchalong roles currently active.", ephemeral=True)
+        return
+        
+    role_list_str = "\n".join([f"• **{name}**: {data.ep_progress}/{data.total_eps} eps" for name, data in roles.items()])
+    
+    if len(role_list_str) > 1900:
+        role_list_str = role_list_str[:1900] + "\n... (List truncated)"
+        
+    await interaction.followup.send(f"**Role List:**\n{role_list_str}", ephemeral=True)
 
 @bot.tree.command(name="edit", description="Edits the data of an existing role")
 @app_commands.describe(
@@ -751,22 +775,24 @@ async def edit_role(
     update_mal: bool = None,
 ):
     await interaction.response.defer()
+
+    guildData = bot.data.guilds[interaction.guild.id]
     if not role_name:
         await interaction.followup.send("No role name detected", ephemeral=True)
         return
-    if role_name not in bot.data.roles:
-        available_roles = list(bot.data.roles.keys())
+    if role_name not in guildData.roles:
+        available_roles = list(guildData.roles.keys())
         await interaction.followup.send(f"Role {role_name} not found, existing list: {available_roles}", ephemeral=True)
         return
     role_name = role_name.strip()
-    old_ep_progress = bot.data.roles[role_name].ep_progress
-    old_total_eps = bot.data.roles[role_name].total_eps
-    old_ep_rate = bot.data.roles[role_name].ep_rate
-    old_day = bot.data.roles[role_name].day
-    old_time = bot.data.roles[role_name].time
-    old_ping_notice = bot.data.roles[role_name].ping_notice
-    old_location = bot.data.roles[role_name].location
-    old_update_mal = bot.data.roles[role_name].update_mal
+    old_ep_progress = guildData.roles[role_name].ep_progress
+    old_total_eps = guildData.roles[role_name].total_eps
+    old_ep_rate = guildData.roles[role_name].ep_rate
+    old_day = guildData.roles[role_name].day
+    old_time = guildData.roles[role_name].time
+    old_ping_notice = guildData.roles[role_name].ping_notice
+    old_location = guildData.roles[role_name].location
+    old_update_mal = guildData.roles[role_name].update_mal
     old_day_str = "n/a"
     old_time_str = "n/a"
     global day_names
@@ -785,27 +811,27 @@ async def edit_role(
         await interaction.followup.send(f"❌ I didn't understand the time `{time}`. Try formats like `14:30` or `2:30 PM`.", ephemeral=True)
         return
 
-    if day_int is not None: bot.data.roles[role_name].day = day_int
-    if time is not None: bot.data.roles[role_name].time = parsed_time.isoformat()
+    if day_int is not None: guildData.roles[role_name].day = day_int
+    if time is not None: guildData.roles[role_name].time = parsed_time.isoformat()
     if ping_notice is not None: 
         if ping_notice < 0:
-            bot.data.roles[role_name].ping_notice = None
+            guildData.roles[role_name].ping_notice = None
         else:
-            bot.data.roles[role_name].ping_notice = ping_notice
-    if location is not None: bot.data.roles[role_name].location = location
-    if ep_progress is not None: bot.data.roles[role_name].ep_progress = ep_progress
-    if total_eps is not None: bot.data.roles[role_name].total_eps = total_eps
-    if ep_rate is not None: bot.data.roles[role_name].ep_rate = ep_rate
-    if update_mal is not None: bot.data.roles[role_name].update_mal = update_mal
+            guildData.roles[role_name].ping_notice = ping_notice
+    if location is not None: guildData.roles[role_name].location = location
+    if ep_progress is not None: guildData.roles[role_name].ep_progress = ep_progress
+    if total_eps is not None: guildData.roles[role_name].total_eps = total_eps
+    if ep_rate is not None: guildData.roles[role_name].ep_rate = ep_rate
+    if update_mal is not None: guildData.roles[role_name].update_mal = update_mal
 
     day_str = None
     time_str = None
-    if bot.data.roles[role_name].day is not None:
-        day_str = day_names[bot.data.roles[role_name].day]
+    if guildData.roles[role_name].day is not None:
+        day_str = day_names[guildData.roles[role_name].day]
     if parsed_time:
         time_str = parsed_time.strftime("%I:%M %p")
-    elif bot.data.roles[role_name].time:
-        time_obj = dt.time.fromisoformat(bot.data.roles[role_name].time)
+    elif guildData.roles[role_name].time:
+        time_obj = dt.time.fromisoformat(guildData.roles[role_name].time)
         time_str = time_obj.strftime("%I:%M %p")
 
     message = (
@@ -816,43 +842,43 @@ async def edit_role(
         if(not emoji.is_emoji(react_emoji)):
             await interaction.followup.send(f"Is not valid emoji", ephemeral=True)
         else:
-            old_emoji = next((k for k, v in bot.data.reaction_map.items() if v == bot.data.roles[role_name].role_id), None)
+            old_emoji = next((k for k, v in guildData.reaction_map.items() if v == guildData.roles[role_name].role_id), None)
             if old_emoji is None:
-                print(f"[ERROR] No pair in reaction_map with role {role_name}, {bot.data.reaction_map}")
+                print(f"[ERROR] No pair in reaction_map with role {role_name}, {guildData.reaction_map}")
                 return
-            await move_reacts(old_emoji, react_emoji)
-            bot.data.reaction_map[react_emoji] = bot.data.roles[role_name].role_id
-            del bot.data.reaction_map[old_emoji]
+            await move_reacts(guildData, old_emoji, react_emoji)
+            guildData.reaction_map[react_emoji] = guildData.roles[role_name].role_id
+            del guildData.reaction_map[old_emoji]
             message += f"Changed Reaction Emoji from {old_emoji}->{react_emoji}"
 
-    await update_role_message()
+    await update_role_message(interaction.guild.id)
     await bot.save_data()
 
     if ep_progress is not None and (ep_progress != old_ep_progress):
-        message += f"**Current episode progress** `{old_ep_progress}`->`{bot.data.roles[role_name].ep_progress}`\n"
+        message += f"**Current episode progress** `{old_ep_progress}`->`{guildData.roles[role_name].ep_progress}`\n"
     else:
-        message += f"**Current episode progress** `{bot.data.roles[role_name].ep_progress}`\n"
+        message += f"**Current episode progress** `{guildData.roles[role_name].ep_progress}`\n"
     if total_eps is not None and (total_eps != old_total_eps):
-        message += f"**Total episodes** `{old_total_eps}`->`{bot.data.roles[role_name].total_eps}`\n"
+        message += f"**Total episodes** `{old_total_eps}`->`{guildData.roles[role_name].total_eps}`\n"
     else:
-        message += f"**Total episodes** `{bot.data.roles[role_name].total_eps}`\n"
+        message += f"**Total episodes** `{guildData.roles[role_name].total_eps}`\n"
     if ep_rate is not None and (ep_rate != old_ep_rate):
-        message += f"**Episode rate** `{old_ep_rate}`->`{bot.data.roles[role_name].ep_rate}` per meeting\n"
+        message += f"**Episode rate** `{old_ep_rate}`->`{guildData.roles[role_name].ep_rate}` per meeting\n"
     else:
-        message += f"**Episode rate** `{bot.data.roles[role_name].ep_rate} per meeting`\n"
+        message += f"**Episode rate** `{guildData.roles[role_name].ep_rate} per meeting`\n"
     message += f"**Time:** Every "
     if(day is not None): message += f"`{old_day_str}` -> "
     message += f"`{day_str}` at "
     if(time is not None): message += f"`{old_time_str}` -> "
     message += f"`{time_str}` in `{TIME_ZONE}`\n"
     if ping_notice is not None and (old_ping_notice != ping_notice):
-        message += f"**Ping:** `{old_ping_notice}` -> `{bot.data.roles[role_name].ping_notice}` minutes before meeting\n"
+        message += f"**Ping:** `{old_ping_notice}` -> `{guildData.roles[role_name].ping_notice}` minutes before meeting\n"
     else:
-        message += f"**Ping:** `{bot.data.roles[role_name].ping_notice}` minutes before meeting\n"
+        message += f"**Ping:** `{guildData.roles[role_name].ping_notice}` minutes before meeting\n"
     if location is not None and (location != old_location):
-        message += f"**Location:** {old_location} -> {bot.data.roles[role_name].location}\n"
+        message += f"**Location:** {old_location} -> {guildData.roles[role_name].location}\n"
     else:
-        message += f"**Location:** {bot.data.roles[role_name].location}\n"
+        message += f"**Location:** {guildData.roles[role_name].location}\n"
     if(update_mal is not None): message += f"Update MAL: `{old_update_mal}` -> `{update_mal}`"
     await interaction.followup.send(message, allowed_mentions=discord.AllowedMentions(users=False))
 
@@ -872,12 +898,14 @@ async def pings(interaction: discord.Interaction):
 @app_commands.autocomplete(role_name=watchalong_roles_autocomplete)
 async def skip(interaction: discord.Interaction, role_name: str):
     await interaction.response.defer()
-    if role_name not in bot.data.roles:
-        available_roles = list(bot.data.roles.keys())
+
+    guildData = bot.data.guilds[interaction.guild.id]
+    if role_name not in guildData.roles:
+        available_roles = list(guildData.roles.keys())
         await interaction.followup.send(f"Warning, no role {role_name} in list: {available_roles}", ephemeral=True)
     now = dt.datetime.now(zoneinfo.ZoneInfo(TIME_ZONE))
 
-    role_data = bot.data.roles[role_name]
+    role_data = guildData.roles[role_name]
     if role_data.day is None or role_data.time is None:
         await interaction.followup.send(f"Warning, no day/time set for {role_name}: {role_data}", ephemeral=True)
         return
@@ -925,11 +953,11 @@ async def before_minute_task():
 @bot.event
 async def on_raw_reaction_add(payload):
     if payload.member.bot: return
-    if payload.message_id != bot.react_message_id:
+    if payload.message_id != bot.data.guilds[payload.guild_id].react_message_id:
         return
-    if str(payload.emoji) in bot.data.reaction_map:
+    if str(payload.emoji) in bot.data.guilds[payload.guild_id].reaction_map:
         guild = bot.get_guild(payload.guild_id)
-        role_id = bot.data.reaction_map[str(payload.emoji)]
+        role_id = bot.data.guilds[payload.guild_id].reaction_map[str(payload.emoji)]
         role = guild.get_role(role_id)
 
         if role:
@@ -943,12 +971,12 @@ async def on_raw_reaction_remove(payload):
 
     if user and user.bot:
         return
-    if payload.message_id != bot.react_message_id:
+    if payload.message_id != bot.data.guilds[payload.guild_id].react_message_id:
         return
 
-    if str(payload.emoji) in bot.data.reaction_map:
+    if str(payload.emoji) in bot.data.guilds[payload.guild_id].reaction_map:
         guild = bot.get_guild(payload.guild_id)
-        role_id = bot.data.reaction_map[str(payload.emoji)]
+        role_id = bot.data.guilds[payload.guild_id].reaction_map[str(payload.emoji)]
         role = guild.get_role(role_id)
 
         try:
@@ -960,21 +988,22 @@ async def on_raw_reaction_remove(payload):
         else:
             print(f"[ERROR] Could not find role and/or member from role id: {role_id} member_id {payload.user_id} for reaction: {payload.emoji}")
 
-async def update_role_message():
-    channel = bot.get_channel(ROLE_CHANNEL_ID)
+async def update_role_message(guild_id: int):
+    guildData = bot.data.guilds[guild_id]
+    channel = bot.get_channel(guildData.role_channel_id)
     try:
-        msg = await channel.fetch_message(bot.react_message_id)
+        msg = await channel.fetch_message(guildData.react_message_id)
     except Exception as e:
-        await init_react_message()
-        msg = await channel.fetch_message(bot.react_message_id)
+        await init_react_message(guild_id)
+        msg = await channel.fetch_message(guildData.react_message_id)
     
     sorted_roles = []
 
-    for emoji, role_id in bot.data.reaction_map.items():
+    for emoji, role_id in guildData.reaction_map.items():
         role = channel.guild.get_role(role_id)
         if not role:
             continue
-        role_info = bot.data.roles.get(role.name)
+        role_info = guildData.roles.get(role.name)
         if not role_info:
             continue
 
@@ -1006,28 +1035,53 @@ async def update_role_message():
 
     bot_reactions = [str(r.emoji) for r in msg.reactions if r.me]
 
-    for emoji_str in bot.data.reaction_map.keys():
+    for emoji_str in guildData.reaction_map.keys():
         if emoji_str not in bot_reactions:
             try:
                 await msg.add_reaction(emoji_str)
             except Exception as e:
                 print(f"[WARNING] Could not add reaction {emoji_str}: {e}")
 
-async def init_react_message():
-    channel = bot.get_channel(ROLE_CHANNEL_ID)
+async def init_react_message(guild_id: int):
+    channel = bot.get_channel(bot.data.guilds[guild_id].role_channel_id)
     message = await channel.send(f"**Role Menu: Anime Watchalongs**\n"
                                  f"React to give yourself a role.\n"
                                  f"Members can use /rq to request an anime as a watchalong to be approved by an admin\n")
-    bot.react_message_id = message.id
+    bot.data.guilds[guild_id].react_message_id = message.id
     await bot.save_data()
 
-async def move_reacts(old_emoji, new_emoji):
-    channel = bot.get_channel(ROLE_CHANNEL_ID)
+@app_commands.command(name="setup_roles", description="Set the channel for the anime role menu")
+@app_commands.describe(
+    role_channel="channel where you want the role message where people react to get roles",
+    ping_channel="channel where you want the ping for roles",
+    ticket_channel="channel where you want member request messages to print to"
+)
+@app_commands.default_permissions(administrator=True)
+async def setup_roles(interaction: discord.Interaction, role_channel: discord.TextChannel, ping_channel: discord.TextChannel, ticket_channel: discord.TextChannel):
+    guild_id = interaction.guild.id
+
+    if guild_id not in bot.data.guilds:
+        bot.data.guilds[guild_id] = GuildData(
+            role_queue={},
+            roles={},
+            reaction_map={}
+        )
+    
+    bot.data.guilds[guild_id].role_channel_id = role_channel.id
+    bot.data.guilds[guild_id].ping_channel_id = ping_channel.id
+    bot.data.guilds[guild_id].ticket_channel_id = ticket_channel.id
+    
+    await interaction.response.send_message(f"Role menu channel set to {role_channel.mention}, ping channel set to {ping_channel.mention}, and ticket channel set to {ticket_channel.mention}", ephemeral=True)
+    await bot.save_data()
+    await init_react_message(guild_id)
+
+async def move_reacts(guildData: GuildData, old_emoji, new_emoji):
+    channel = bot.get_channel(guildData.role_channel_id)
     try:
-        message = await channel.fetch_message(bot.react_message_id)
+        message = await channel.fetch_message(guildData.react_message_id)
     except discord.NotFound:
-        await init_react_message()
-        message = await channel.fetch_message(bot.react_message_id)
+        await init_react_message(channel.guild.id)
+        message = await channel.fetch_message(guildData.react_message_id)
 
     old_reaction = discord.utils.get(message.reactions, emoji=old_emoji)
     if not old_reaction:

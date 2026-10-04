@@ -1,6 +1,5 @@
 import aiosqlite
 import json
-import discord
 from discord.ext import commands
 from dataclasses import asdict, dataclass
 import datetime
@@ -40,25 +39,34 @@ class RoleClass:
     location: str = None
     update_mal: bool = False
 
+@dataclass
+class GuildData:
+    role_queue: dict[str, RoleRequest]
+    roles: dict[str, RoleClass]
+    reaction_map: dict[str, int]
+    react_message_id: int = None
+    role_channel_id: int = None
+    ping_channel_id: int = None
+    ticket_channel_id: int = None
+
 class data_struct:
     def __init__(self):
-        self.role_queue: dict[str, RoleRequest] = {}
-        self.roles: dict[str, RoleClass] = {}
-        self.reaction_map: dict[str, int] = {}
+        self.guilds: dict[int, GuildData] = {}
 
 class MyBot(commands.Bot):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.db: aiosqlite.Connection = None # Start as None, connect later
         self.data = data_struct()
-        self.react_message_id: int = None
         self.data_loaded = False
 
     async def _init_db(self):
         await self.db.execute("""
-            CREATE TABLE IF NOT EXISTS state (
-                key TEXT PRIMARY KEY,
-                value TEXT
+            CREATE TABLE IF NOT EXISTS guild_state (
+                guild_id INTEGER,
+                key TEXT,
+                value TEXT,
+                PRIMARY KEY (guild_id, key)
             )
         """)
         await self.db.execute("""
@@ -80,28 +88,29 @@ class MyBot(commands.Bot):
     async def load_data(self):
         async with self.db.execute("SELECT key, value FROM state") as cursor:
             rows = await cursor.fetchall()
-        
-        saved_state = {
-            row[0]: json.loads(row[1]) if row[1] is not None else None 
-            for row in rows
-        }
 
-        raw_roles = saved_state.get("roles", {})
-        raw_role_queue = saved_state.get("role_queue", {})
+        for guild_id, key, value in rows:
+            if guild_id not in self.data.guilds:
+                self.data.guilds[guild_id] = GuildData(role_queue={}, roles={}, reaction_map={})
+            
+            guild = self.data.guilds[guild_id]
 
-        self.data.roles = {
-            role_name: RoleClass(**data) 
-            for role_name, data in raw_roles.items()
-        }
-        self.data.role_queue = {
-            role: RoleRequest(**data) 
-            for role, data in raw_role_queue.items()
-        }
-        self.data.reaction_map = saved_state.get("reaction_map", {})
+            parsed_value = json.loads(value) if value is not None else None
 
-        self.react_message_id = saved_state.get("react_message_id", None)
-        if self.react_message_id is not None: 
-            self.react_message_id = int(self.react_message_id)
+            if key == "roles" and parsed_value:
+                guild.roles = {name: RoleClass(**data) for name, data in parsed_value.items()}
+            elif key == "role_queue" and parsed_value:
+                guild.role_queue = {name: RoleRequest(**data) for name, data in parsed_value.items()}
+            elif key == "reaction_map" and parsed_value:
+                guild.reaction_map = parsed_value
+            elif key == "react_message_id":
+                guild.react_message_id = int(parsed_value) if parsed_value else None
+            elif key == "role_channel_id":
+                guild.role_channel_id = int(parsed_value) if parsed_value else None
+            elif key == "ping_channel_id":
+                guild.ping_channel_id = int(parsed_value) if parsed_value else None
+            elif key == "ticket_channel_id":
+                guild.ticket_channel_id = int(parsed_value) if parsed_value else None
 
         self.data_loaded = True
 
@@ -109,25 +118,32 @@ class MyBot(commands.Bot):
         if not self.db:
             return
 
-        serializable_queue = {
-            role: asdict(request_obj) 
-            for role, request_obj in self.data.role_queue.items()
-        }
-        serializable_roles = {
-            role_name: asdict(role_obj) 
-            for role_name, role_obj in self.data.roles.items()
-        }
-        
-        await self.db.execute("REPLACE INTO state (key, value) VALUES (?, ?)", 
-                       ("role_queue", json.dumps(serializable_queue, default=json_datetime_serializer)))
-        await self.db.execute("REPLACE INTO state (key, value) VALUES (?, ?)", 
-                       ("roles", json.dumps(serializable_roles)))
-        await self.db.execute("REPLACE INTO state (key, value) VALUES (?, ?)", 
-                       ("reaction_map", json.dumps(self.data.reaction_map)))
-        await self.db.execute("REPLACE INTO state (key, value) VALUES (?, ?)", 
-                       ("react_message_id", json.dumps(self.react_message_id)))
-        
-        await self.db.commit()
+        for guild_id, guild_data in self.data.guilds.items():
+            serializable_queue = {
+                role: asdict(request_obj) 
+                for role, request_obj in guild_data.role_queue.items()
+            }
+            serializable_roles = {
+                role_name: asdict(role_obj) 
+                for role_name, role_obj in guild_data.roles.items()
+            }
+            
+            await self.db.execute("REPLACE INTO guild_state (guild_id, key, value) VALUES (?, ?, ?)", 
+                                  (guild_id, "role_queue", json.dumps(serializable_queue, default=json_datetime_serializer)))
+            await self.db.execute("REPLACE INTO guild_state (guild_id, key, value) VALUES (?, ?, ?)", 
+                                  (guild_id, "roles", json.dumps(serializable_roles)))
+            await self.db.execute("REPLACE INTO guild_state (guild_id, key, value) VALUES (?, ?, ?)", 
+                                  (guild_id, "reaction_map", json.dumps(guild_data.reaction_map)))
+            await self.db.execute("REPLACE INTO guild_state (guild_id, key, value) VALUES (?, ?, ?)", 
+                                  (guild_id, "react_message_id", json.dumps(guild_data.react_message_id)))
+            await self.db.execute("REPLACE INTO guild_state (guild_id, key, value) VALUES (?, ?, ?)", 
+                                  (guild_id, "role_channel_id", json.dumps(guild_data.role_channel_id)))
+            await self.db.execute("REPLACE INTO guild_state (guild_id, key, value) VALUES (?, ?, ?)", 
+                                  (guild_id, "ping_channel_id", json.dumps(guild_data.ping_channel_id)))
+            await self.db.execute("REPLACE INTO guild_state (guild_id, key, value) VALUES (?, ?, ?)", 
+                                  (guild_id, "ticket_channel_id", json.dumps(guild_data.ticket_channel_id)))
+            
+            await self.db.commit()
 
     async def setup_hook(self):
         # Connect to the DB asynchronously when the bot starts
