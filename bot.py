@@ -990,7 +990,21 @@ async def on_raw_reaction_remove(payload):
 
 async def update_role_message(guild_id: int):
     guildData = bot.data.guilds[guild_id]
+    if not guildData or not guildData.role_channel_id:
+        return
+    
     channel = bot.get_channel(guildData.role_channel_id)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(guildData.role_channel_id)
+        except Exception:
+            print(f"[Warning] Could not fetch role channel {guildData.role_channel_id} for guild {guild_id}")
+            return
+
+    if not guildData.react_message_id:
+        await init_react_message(guild_id)
+        return
+    
     try:
         msg = await channel.fetch_message(guildData.react_message_id)
     except Exception as e:
@@ -1043,7 +1057,18 @@ async def update_role_message(guild_id: int):
                 print(f"[WARNING] Could not add reaction {emoji_str}: {e}")
 
 async def init_react_message(guild_id: int):
+    guildData = bot.data.guilds.get(guild_id)
+    if not guildData or not guildData.role_channel_id:
+        return
+    
     channel = bot.get_channel(bot.data.guilds[guild_id].role_channel_id)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(guildData.role_channel_id)
+        except Exception:
+            print(f"[Warning] Could not fetch role channel {guildData.role_channel_id} for guild {guild_id}")
+            return
+        
     message = await channel.send(f"**Role Menu: Anime Watchalongs**\n"
                                  f"React to give yourself a role.\n"
                                  f"Members can use /rq to request an anime as a watchalong to be approved by an admin\n")
