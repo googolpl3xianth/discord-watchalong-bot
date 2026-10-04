@@ -51,8 +51,13 @@ async def weekly_ping_task():
     for guild_id, guildData in bot.data.guilds.items():
         ping_channel = bot.get_channel(guildData.ping_channel_id) 
         if not ping_channel:
-            print(f"[ERROR] Ping channel not found at: {guildData}")
-            return
+            try:
+                ping_channel = await bot.fetch_channel(guildData.ping_channel_id)
+            except Exception:
+                ping_channel = None
+        if ping_channel is None:
+            print(f"[Warning] Ping channel {guildData.ping_channel_id} unreachable for guild {guild_id}")
+            continue
         for role_name, role_data in list(guildData.roles.items()):
             role = ping_channel.guild.get_role(role_data.role_id)
             if role is None or role_data.day is None or role_data.time is None or role_data.ep_progress is None or role_data.ep_rate is None or role_data.total_eps is None:
@@ -1075,14 +1080,14 @@ async def init_react_message(guild_id: int):
     bot.data.guilds[guild_id].react_message_id = message.id
     await bot.save_data()
 
-@app_commands.command(name="setup_roles", description="Set the channel for the anime role menu")
+@app_commands.command(name="setup_channels", description="Set the channel for the anime role menu")
 @app_commands.describe(
     role_channel="channel where you want the role message where people react to get roles",
     ping_channel="channel where you want the ping for roles",
     ticket_channel="channel where you want member request messages to print to"
 )
 @app_commands.default_permissions(administrator=True)
-async def setup_roles(interaction: discord.Interaction, role_channel: discord.TextChannel, ping_channel: discord.TextChannel, ticket_channel: discord.TextChannel):
+async def setup_channels(interaction: discord.Interaction, role_channel: discord.TextChannel, ping_channel: discord.TextChannel, ticket_channel: discord.TextChannel):
     guild_id = interaction.guild.id
 
     if guild_id not in bot.data.guilds:
