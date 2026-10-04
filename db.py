@@ -7,6 +7,7 @@ from aiohttp import web
 import aiohttp
 import os
 import re
+from pathlib import Path
 
 def json_datetime_serializer(obj):
     if isinstance(obj, datetime.datetime):
@@ -86,7 +87,7 @@ class MyBot(commands.Bot):
         await self.db.commit()
 
     async def load_data(self):
-        async with self.db.execute("SELECT key, value FROM state") as cursor:
+        async with self.db.execute("SELECT guild_id, key, value FROM guild_state") as cursor:
             rows = await cursor.fetchall()
 
         for guild_id, key, value in rows:
@@ -146,8 +147,8 @@ class MyBot(commands.Bot):
             await self.db.commit()
 
     async def setup_hook(self):
-        # Connect to the DB asynchronously when the bot starts
-        self.db = await aiosqlite.connect("bot_state.db")
+        db_path = Path(__file__).parent / "bot_state.db"
+        self.db = await aiosqlite.connect(db_path)
         await self._init_db()
         await self.load_data()
         await self.tree.sync()
