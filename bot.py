@@ -1008,7 +1008,9 @@ async def update_role_message(guild_id: int):
 
     if not guildData.react_message_id:
         await init_react_message(guild_id)
-        return
+        guildData = bot.data.guilds.get(guild_id)
+        if not guildData or not guildData.react_message_id:
+            return
     
     try:
         msg = await channel.fetch_message(guildData.react_message_id)
@@ -1041,7 +1043,7 @@ async def update_role_message(guild_id: int):
         sort_day = role_info.day if role_info.day is not None else 7
         sort_time = role_info.time if role_info.time is not None else "23:59:59"
 
-        sorted_roles.append((sort_day, sort_time, emoji, role.name, role_info))
+        sorted_roles.append((sort_day, sort_time, emoji, role_name, role_info))
 
     sorted_roles.sort(key=lambda x: (x[0], x[1]))
 
