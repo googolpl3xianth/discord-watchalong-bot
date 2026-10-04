@@ -1,6 +1,7 @@
 import datetime
 import zoneinfo
 import os
+from db import GuildData, RoleClass
 
 def parse_schedule(day_str: str, time_str: str):
     """
@@ -55,14 +56,14 @@ DEFAULT_EMOJI_POOL = [
     "🍎", "🍊", "🍋", "🍉", "🍇", "🫐", "🥝", "🥥", "🍍"
 ]
 
-def get_available_emoji(bot):
+def get_available_emoji(guildData: GuildData):
     """Finds the first emoji in the pool that isn't currently being used."""
     for emoji in DEFAULT_EMOJI_POOL:
-        if emoji not in bot.data.reaction_map:
+        if emoji not in guildData.reaction_map:
             return emoji
     return None
 
-def get_datetime(role_data, now=None) -> datetime:
+def get_datetime(role_data: RoleClass, now=None) -> datetime:
     if now is None:
         now = datetime.datetime.now(zoneinfo.ZoneInfo(os.getenv("TIME_ZONE")))
     time_obj = datetime.time.fromisoformat(role_data.time)
